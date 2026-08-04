@@ -1,0 +1,1209 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0, viewport-fit=cover'>
+    <meta charset='utf-8'>
+    <title>IRVE Roadbook Live</title>
+    
+    <!-- Balises PWA -->
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: dark)">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <link rel="manifest" href="./manifest.json">
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+      :root { 
+        --bg: #f8fafc; --text: #0f172a; --border: #cbd5e1; --card-bg: #ffffff; --input-bg: #ffffff; --input-border: #94a3b8; --pdc-bg: #f1f5f9; --btn-bg: #e2e8f0; --btn-text: #0f172a; 
+        --op-color: #0284c7; --dispo-ok: #16a34a; --dispo-warn: #d97706; --dispo-alert: #dc2626;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #121212; --text: #e0e0e0; --border: #333333; --card-bg: #18181b; --input-bg: #18181b; --input-border: #3f3f46; --pdc-bg: #09090b; --btn-bg: #1e293b; --btn-text: #ffffff; 
+          --op-color: #38bdf8; --dispo-ok: #4ade80; --dispo-warn: #fbbf24; --dispo-alert: #f87171;
+        }
+      }
+      body { font-family: -apple-system, sans-serif; margin: 0; background: var(--bg); color: var(--text); height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+      
+      #map, #terminal-logs { 
+          position: relative; 
+          height: 45vh; 
+          height: 45dvh; 
+          width: 100%; 
+          border-bottom: 2px solid #cbd5e1; 
+          flex-shrink: 0; 
+          box-sizing: border-box;
+      }
+
+      #terminal-logs { 
+          display: none; 
+          background: rgba(15,23,42,0.98); 
+          color: #4ade80; 
+          font-family: monospace; 
+          font-size: 11px; 
+          overflow-y: auto; 
+          -webkit-overflow-scrolling: touch; 
+          padding: 10px; 
+          padding-bottom: 40px; 
+          z-index: 10; 
+          user-select: text;
+          -webkit-user-select: text;
+      }
+
+      .leaflet-control-brouter { background: #fff; border: 2px solid rgba(0,0,0,0.2); background-clip: padding-box; border-radius: 4px; box-shadow: 0 1px 5px rgba(0,0,0,0.4); }
+      .brouter-ctrl-btn { width: 26px; height: 26px; line-height: 26px; display: flex; align-items: center; justify-content: center; text-decoration: none; color: #000; border-bottom: 1px solid #ccc; cursor: pointer; background-color: #fff; position: relative; box-sizing: border-box; }
+      .brouter-ctrl-btn:last-child { border-bottom: none; }
+      .brouter-ctrl-btn:hover { background-color: #f4f4f4; color: #000; }
+      .brouter-ctrl-btn.active-track { background-color: #16a34a !important; color: #fff !important; }
+      .brouter-ctrl-btn.active-mode { background-color: #0284c7 !important; color: #fff !important; }
+      .brouter-ctrl-btn svg { width: 14px; height: 14px; vertical-align: middle; fill: currentColor; }
+
+      #main-content { height: 55vh; height: 55dvh; flex: 1; overflow-y: auto; padding: 10px; box-sizing: border-box; }
+      .header-controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; font-size: 13px; }
+      .refresh-btn { background: var(--btn-bg); color: var(--btn-text); border: 1px solid var(--border); padding: 5px 9px; border-radius: 6px; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+
+      .input-field { background: var(--input-bg); color: var(--text); border: 1px solid var(--input-border); padding: 5px; width: 48px; border-radius: 6px; font-weight: bold; text-align: center; font-size: 13px; }
+      
+      .multi-select-container { position: relative; display: inline-block; font-size: 12px; }
+      .multi-select-header { background: var(--input-bg); color: var(--text); border: 1px solid var(--input-border); padding: 5px 8px; border-radius: 6px; cursor: pointer; font-weight: 500; white-space: nowrap; user-select: none; }
+      .multi-select-dropdown { display: none; position: absolute; top: 100%; left: 0; z-index: 100; background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-height: 180px; overflow-y: auto; width: 220px; padding: 6px; margin-top: 2px; }
+      .multi-select-dropdown.show { display: block; }
+      .multi-select-item { display: flex; align-items: center; gap: 6px; padding: 3px 0; cursor: pointer; font-size: 11px; }
+
+      .station-card { display: flex; flex-direction: column; border-bottom: 1px solid var(--border); padding: 12px 6px; cursor: pointer; background: var(--card-bg); border-radius: 6px; margin-bottom: 4px;}
+      .station-main { display: flex; align-items: center; width: 100%; }
+      .nav-block { width: 75px; min-width: 75px; border-right: 1px solid var(--border); margin-right: 12px; }
+      .borne-container { display: flex; flex-direction: column; width: 14px; height: 18px; flex-shrink: 0; }
+      .chapeau-rouge { height: 6px; background-color: #ef4444; border-top-left-radius: 6px; border-top-right-radius: 6px; }
+      .base-blanche { flex: 1; background-color: #ffffff; border: 1px solid #9ca3af; border-top: none; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: 900; color: #1f2937; }
+      .pk-line { font-size: 16px; font-weight: 800; display: flex; align-items: center; gap: 4px; }
+      .detour-line { font-size: 11px; opacity: 0.7; margin-left: 18px; margin-top: 2px; }
+      .info-block { flex: 1; min-width: 0; }
+      .op-title { font-weight: 800; font-size: 15px; word-break: break-word; color: var(--op-color); }
+      .st-name { font-size: 13px; opacity: 0.9; margin-top: 2px; word-break: break-word; }
+      .st-commune { font-size: 11px; opacity: 0.75; font-weight: 600; margin-top: 1px; word-break: break-word; }
+      
+      .tech-block { width: auto; min-width: 55px; text-align: right; border-left: 1px solid var(--border); padding-left: 8px; flex-shrink: 0; }
+      
+      .dispo-ok { color: var(--dispo-ok); } .dispo-warn { color: var(--dispo-warn); } .dispo-alert { color: var(--dispo-alert); }
+      .pdc-panel { display: none; margin-top: 10px; font-size: 12px; background: var(--pdc-bg); padding: 10px; border-radius: 6px; }
+      .pdc-panel.show { display: block; }
+      .pdc-table { width: 100%; border-collapse: collapse; text-align: left; table-layout: fixed; }
+      .pdc-table td, .pdc-table th { padding: 4px; border-bottom: 1px solid var(--border); font-family: monospace; font-size: 11px; }
+      
+      .pdc-table th:nth-child(1), .pdc-table td:nth-child(1) { width: 28%; word-break: break-all; overflow-wrap: break-word; }
+      .pdc-table th:nth-child(2), .pdc-table td:nth-child(2) { width: 28%; }
+      .pdc-table th:nth-child(3), .pdc-table td:nth-child(3) { width: 22%; }
+      .pdc-table th:nth-child(4), .pdc-table td:nth-child(4) { width: 22%; }
+      
+      .log-err { color: #f87171; }
+      .close-log-btn { position: sticky; top: 0; float: right; background: #ef4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-weight: bold; cursor: pointer; z-index: 20; }
+      
+      .user-loc-icon { background: transparent !important; border: none !important; }
+      .user-loc-arrow { width: 28px; height: 28px; transition: transform 0.3s ease-out; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.4)); }
+    </style>
+</head>
+<body>
+  <div id="terminal-logs">
+      <button class="close-log-btn" onclick="toggleLogs()">✕ Fermer</button>
+      <div id="log-content"></div>
+  </div>
+
+  <div id="map"></div>
+  
+  <div id="main-content">
+    <div class="header-controls">
+      <a href="./index.html" class="refresh-btn" title="Retour à l'accueil" style="text-decoration:none;">🏠</a>
+      <input type='number' id='kmInput' class='input-field' value="0.0" step="0.1" oninput='onKmInputChange()' max="9999">
+
+      <button id="btnToggleMode" class="refresh-btn" onclick="toggleViewMode()" title="Changer de vue (Stations / Feuille de route)">⚡</button>
+
+      <div id="operatorSelectContainer" class="multi-select-container">
+          <div class="multi-select-header" onclick="toggleOpDropdown(event)">Opérateurs (Tous) ▼</div>
+          <div id="opDropdownContent" class="multi-select-dropdown">
+              <div class="multi-select-item" onclick="toggleSelectAllOps(true)"><b>[ Tout sélectionner ]</b></div>
+              <div class="multi-select-item" onclick="toggleSelectAllOps(false)"><b>[ Tout désélectionner ]</b></div>
+              <hr style="border:0; border-top:1px solid var(--border); margin:4px 0;">
+              <div id="opCheckboxesList"></div>
+          </div>
+      </div>
+      
+      <input type="file" id="gpxInput" accept=".gpx,.json,.geojson" style="display:none;" onchange="handleTraceUpload(event)">
+      <button class="refresh-btn" onclick="document.getElementById('gpxInput').click()" title="Charger Trace (GPX/JSON Valhalla)">📁</button>
+      <button class="refresh-btn" onclick="toggleLogs()" title="Logs">📝</button>
+      <button class='refresh-btn' onclick="fetchLiveQualicharge()" title="Rafraîchir Live">🔄</button>
+    </div>
+    <div id="stationsContainer">
+        <div style="text-align:center; opacity:0.6; padding: 20px;">Veuillez charger un fichier GPX ou JSON Valhalla pour commencer.<br><br>💡 (Bouton 📁 ou via Partage Android)</div>
+    </div>
+  </div>
+
+<script>
+let map, gpxLineFuture, gpxLinePast, userMarker, watchId = null, isAutoTrack = false, isSimulating = false, simInterval = null;
+let navDisplayMode = 'CLOSE';
+let gpxPoints = [], globalData = [], roadbookManeuvers = [], markers = {};
+let lastValidLat = null, lastValidLng = null;
+let wakeLock = null;
+let isInitialGPXLoad = false;
+let currentViewMode = 'STATIONS';
+const RAYON_RECHERCHE_KM = 3.0, PUISSANCE_MIN_KW = 100.0, KM_MIN_DEPART = 5.0;
+
+const INITIAL_LAT = 46.603354;
+const INITIAL_LNG = 1.888334;
+const INITIAL_ZOOM = 5;
+const NAV_CLOSE_ZOOM = 11;
+const NAV_MAX_OVERVIEW_ZOOM = 16;
+
+function toggleViewMode() {
+    const btn = document.getElementById('btnToggleMode');
+    if (currentViewMode === 'STATIONS') {
+        currentViewMode = 'ROADBOOK';
+        btn.innerText = '🗺️';
+    } else {
+        currentViewMode = 'STATIONS';
+        btn.innerText = '⚡';
+    }
+    document.getElementById('operatorSelectContainer').style.display = (currentViewMode === 'STATIONS') ? 'inline-block' : 'none';
+    renderList();
+}
+
+function decodeValhallaPolyline(str, precision = 6) {
+    let index = 0, lat = 0, lng = 0, coordinates = [];
+    const factor = Math.pow(10, precision);
+
+    while (index < str.length) {
+        let byte = null, shift = 0, result = 0;
+        do {
+            byte = str.charCodeAt(index++) - 63;
+            result |= (byte & 0x1f) << shift;
+            shift += 5;
+        } while (byte >= 0x20);
+        let deltaLat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lat += deltaLat;
+
+        shift = 0; result = 0;
+        do {
+            byte = str.charCodeAt(index++) - 63;
+            result |= (byte & 0x1f) << shift;
+            shift += 5;
+        } while (byte >= 0x20);
+        let deltaLng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lng += deltaLng;
+
+        coordinates.push([lat / factor, lng / factor]);
+    }
+    return coordinates;
+}
+
+async function requestWakeLock() {
+  if ('wakeLock' in navigator) {
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      log("WAKE LOCK", "💡 Maintien de l'écran allumé activé.");
+    } catch (err) {
+      log("WAKE LOCK", "Erreur d'activation : " + err.message, true);
+    }
+  } else {
+    log("WAKE LOCK", "API Wake Lock non supportée par ce navigateur.", true);
+  }
+}
+
+function releaseWakeLock() {
+  if (wakeLock !== null) {
+    wakeLock.release().then(() => {
+      wakeLock = null;
+      log("WAKE LOCK", "🌙 Ecran autorisé à se mettre en veille.");
+    });
+  }
+}
+
+document.addEventListener('visibilitychange', async () => {
+  if (wakeLock !== null && document.visibilityState === 'visible' && (isAutoTrack || isSimulating)) {
+    await requestWakeLock();
+  }
+});
+
+const DB_NAME = 'IRVEDatabase';
+const DB_VERSION = 2;
+const STORE_STATIONS = 'stations';
+const STORE_COMMUNES = 'communes';
+const MAX_AGE_DAYS = 7;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_STATIONS)) {
+        db.createObjectStore(STORE_STATIONS);
+      }
+      if (!db.objectStoreNames.contains(STORE_COMMUNES)) {
+        db.createObjectStore(STORE_COMMUNES);
+      }
+    };
+    request.onsuccess = (e) => resolve(e.target.result);
+    request.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function loadOrFetchCommunesDB() {
+    try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_COMMUNES, 'readonly');
+        const count = await new Promise(r => {
+            const req = tx.objectStore(STORE_COMMUNES).count();
+            req.onsuccess = () => r(req.result);
+        });
+
+        if (count > 0) {
+            log("COMMUNES", `Base de communes locale trouvée (${count} communes).`);
+            return;
+        }
+
+        if (!navigator.onLine) {
+            log("COMMUNES", "🌐 Hors-ligne : Impossible d'initialiser la base communes.", true);
+            return;
+        }
+
+        log("COMMUNES", "Téléchargement de la base officielle des communes (JSON)...");
+        
+        const response = await fetch("https://geo.api.gouv.fr/communes?fields=code,nom");
+        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+        
+        const communes = await response.json();
+        log("COMMUNES", `Analyse et stockage de ${communes.length} communes...`);
+
+        const writeTx = db.transaction(STORE_COMMUNES, 'readwrite');
+        const store = writeTx.objectStore(STORE_COMMUNES);
+
+        communes.forEach(item => {
+            if (item.code && item.nom) {
+                store.put(item.nom, item.code);
+            }
+        });
+
+        writeTx.oncomplete = () => {
+            log("COMMUNES", "💾 Base officielle des communes enregistrée dans IndexedDB !");
+        };
+
+    } catch (e) {
+        log("COMMUNES", "Erreur initialisation communes : " + e.message, true);
+    }
+}
+
+async function getCommunesMap(codesInseeSet) {
+    const communesMap = new Map();
+    if (codesInseeSet.size === 0) return communesMap;
+
+    try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_COMMUNES, 'readonly');
+        const store = tx.objectStore(STORE_COMMUNES);
+
+        await new Promise((resolve) => {
+            let pending = codesInseeSet.size;
+
+            codesInseeSet.forEach(code => {
+                if (!code) {
+                    if (--pending === 0) resolve();
+                    return;
+                }
+                const req = store.get(code);
+                req.onsuccess = () => {
+                    if (req.result) communesMap.set(code, req.result);
+                    if (--pending === 0) resolve();
+                };
+                req.onerror = () => {
+                    if (--pending === 0) resolve();
+                };
+            });
+        });
+    } catch (e) {
+        log("COMMUNES", "Erreur lecture des communes : " + e.message, true);
+    }
+    return communesMap;
+}
+
+async function saveStaticDataToDB(data) {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(STORE_STATIONS, 'readwrite');
+    const store = tx.objectStore(STORE_STATIONS);
+    store.put(data, 'cached_raw_data');
+    store.put(Date.now(), 'last_update_timestamp');
+    log("INDEXEDDB", "💾 Base IRVE statique sauvegardée localement.");
+  } catch (err) {
+    log("INDEXEDDB", "Erreur de sauvegarde stations : " + err.message, true);
+  }
+}
+
+async function getCachedStaticData() {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(STORE_STATIONS, 'readonly');
+    const store = tx.objectStore(STORE_STATIONS);
+    
+    const data = await new Promise(r => {
+      const req = store.get('cached_raw_data');
+      req.onsuccess = () => r(req.result);
+    });
+    
+    const timestamp = await new Promise(r => {
+      const req = store.get('last_update_timestamp');
+      req.onsuccess = () => r(req.result);
+    });
+
+    if (!data || !timestamp) return null;
+
+    const ageInDays = (Date.now() - timestamp) / (1000 * 60 * 60 * 24);
+    return { data, isOutdated: ageInDays > MAX_AGE_DAYS };
+  } catch (err) {
+    log("INDEXEDDB", "Erreur de lecture : " + err.message, true);
+    return null;
+  }
+}
+
+function log(tag, message, isError=false) {
+    const ts = new Date().toLocaleTimeString('fr-FR');
+    const pref = isError ? "❌ [ERREUR]" : "ℹ️ [INFO]";
+    const line = `[${ts}] ${pref} [${tag}] ${message}`;
+    if (isError) console.error(line); else console.log(line);
+    
+    const term = document.getElementById('terminal-logs');
+    const content = document.getElementById('log-content');
+    if (content) {
+        const div = document.createElement('div');
+        if(isError) div.className = 'log-err';
+        div.innerText = line;
+        content.appendChild(div);
+        term.scrollTop = term.scrollHeight;
+    }
+}
+
+function toggleLogs() {
+    const t = document.getElementById('terminal-logs');
+    const mapDiv = document.getElementById('map');
+    const isOpen = t.style.display === 'block';
+    
+    if (isOpen) {
+        t.style.display = 'none';
+        mapDiv.style.display = 'block';
+        if(map) map.invalidateSize();
+    } else {
+        mapDiv.style.display = 'none';
+        t.style.display = 'block';
+        t.scrollTop = t.scrollHeight;
+    }
+}
+
+function initMap() {
+    map = L.map('map', {zoomControl: true}).setView([INITIAL_LAT, INITIAL_LNG], INITIAL_ZOOM);
+    
+    L.tileLayer('https://{s}.tile.openstreetmap.de/tiles/osmde/{z}/{x}/{y}.png', { 
+      minZoom: 4,
+      maxZoom: 19
+    }).addTo(map);
+
+    L.control.scale({ imperial: false, metric: true }).addTo(map);
+
+    const CustomActionControls = L.Control.extend({
+        options: { position: 'topleft' },
+        onAdd: function() {
+            let container = L.DomUtil.create('div', 'leaflet-control-zoom leaflet-bar leaflet-control');
+            
+            let b1 = L.DomUtil.create('a', 'brouter-ctrl-btn', container);
+            b1.id = 'recadrageBtn';
+            b1.innerHTML = '<svg viewBox="0 0 24 24" style="width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round;"><line x1="19" y1="5" x2="14" y2="10"/><polyline points="14 5 19 5 19 10"/><line x1="5" y1="19" x2="10" y2="14"/><polyline points="10 19 5 19 5 14"/></svg>';
+            b1.title = "Recadrer";
+            b1.onclick = (e) => { e.stopPropagation(); handleButton1Click(); };
+
+            let b2 = L.DomUtil.create('a', 'brouter-ctrl-btn', container);
+            b2.id = 'geolocBtn';
+            b2.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z"/></svg>';
+            b2.title = "Géolocalisation";
+            b2.onclick = (e) => { e.stopPropagation(); handleButton2Click(); };
+
+            let b3 = L.DomUtil.create('a', 'brouter-ctrl-btn', container);
+            b3.id = 'autoTrackBtn';
+            b3.innerHTML = '<svg viewBox="0 0 24 24"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.22.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.85 7h10.29l1.04 3H5.81l1.04-3zM19 17H5v-4.66l.12-.34h13.76l.12.34V17z"/><circle cx="7.5" cy="14.5" r="1.5"/><circle cx="16.5" cy="14.5" r="1.5"/></svg>';
+            b3.title = "Activer/Désactiver suivi live";
+            b3.onclick = (e) => { e.stopPropagation(); toggleAutoTrack(); };
+
+            let b4 = L.DomUtil.create('a', 'brouter-ctrl-btn', container);
+            b4.id = 'simTrackBtn';
+            b4.innerHTML = '<svg viewBox="0 0 24 24"><path d="M13 6l6 6-6 6M5 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+            b4.title = "Simuler le trajet sur la trace";
+            b4.onclick = (e) => { e.stopPropagation(); toggleSimulation(); };
+
+            return container;
+        }
+    });
+    map.addControl(new CustomActionControls());
+
+    document.addEventListener('click', (e) => {
+        const container = document.querySelector('.multi-select-container');
+        if (container && !container.contains(e.target)) {
+            document.getElementById('opDropdownContent').classList.remove('show');
+        }
+    });
+
+    log("INIT", "Carte Leaflet initialisée.");
+    loadOrFetchCommunesDB();
+}
+
+function toggleOpDropdown(e) {
+    e.stopPropagation();
+    document.getElementById('opDropdownContent').classList.toggle('show');
+}
+
+function handleButton1Click() {
+    if (isAutoTrack || isSimulating) {
+        navDisplayMode = 'OVERVIEW';
+        log("MAP", "Mode Vue d'Ensemble activé.");
+        applyNavBounds(lastValidLat, lastValidLng);
+    } else {
+        fitTraceBounds();
+    }
+}
+
+function handleButton2Click() {
+    if (isAutoTrack || isSimulating) {
+        navDisplayMode = 'CLOSE';
+        log("MAP", "Retour au Mode Suivi Rapproché.");
+        if (lastValidLat !== null && lastValidLng !== null) {
+            map.setView([lastValidLat, lastValidLng], NAV_CLOSE_ZOOM);
+        } else {
+            getSinglePosition();
+        }
+    } else {
+        getSinglePosition();
+    }
+}
+
+function fitTraceBounds() {
+    if (gpxLineFuture) {
+        let bounds = gpxLineFuture.getBounds();
+        if (gpxLinePast && gpxLinePast.getLatLngs().length > 0) {
+            bounds.extend(gpxLinePast.getBounds());
+        }
+        map.fitBounds(bounds);
+        log("MAP", "Recadrage sur la trace.");
+    } else {
+        map.setView([INITIAL_LAT, INITIAL_LNG], INITIAL_ZOOM);
+        log("MAP", "Carte vide : Réinitialisation sur la vue initiale.");
+    }
+}
+
+function applyNavBounds(lat, lng) {
+    if (gpxLineFuture && gpxLineFuture.getLatLngs().length > 0) {
+        map.fitBounds(gpxLineFuture.getBounds(), { 
+            padding: [30, 30],
+            maxZoom: NAV_MAX_OVERVIEW_ZOOM 
+        });
+    } else if (lat !== null && lng !== null) {
+        map.panTo([lat, lng]);
+    }
+}
+
+function getSinglePosition() {
+    if(!navigator.geolocation) {
+        log("GPS", "Géolocalisation non supportée.", true);
+        return;
+    }
+    log("GPS", "Acquisition d'une position GPS ponctuelle...");
+    navigator.geolocation.getCurrentPosition(
+        pos => {
+            updatePosition(pos.coords.latitude, pos.coords.longitude, pos.coords.heading);
+            map.setView([pos.coords.latitude, pos.coords.longitude], NAV_CLOSE_ZOOM);
+            log("GPS", "Position ponctuelle acquise avec succès.");
+        },
+        err => log("GPS", "Erreur acquisition : " + err.message, true),
+        { enableHighAccuracy: true, timeout: 10000 }
+    );
+}
+
+function toggleAutoTrack() {
+    if(isSimulating) toggleSimulation();
+    isAutoTrack = !isAutoTrack;
+    const btn = document.getElementById('autoTrackBtn');
+    if (isAutoTrack) {
+        btn.classList.add('active-track');
+        navDisplayMode = 'CLOSE';
+        
+        if (lastValidLat !== null && lastValidLng !== null) {
+            map.setView([lastValidLat, lastValidLng], NAV_CLOSE_ZOOM);
+        }
+
+        requestWakeLock();
+        if(navigator.geolocation) {
+            watchId = navigator.geolocation.watchPosition(
+                pos => updatePosition(pos.coords.latitude, pos.coords.longitude, pos.coords.heading),
+                err => log("GPS", "Erreur : " + err.message, true),
+                { enableHighAccuracy: true, maximumAge: 3000 }
+            );
+            log("GPS", "Suivi live activé.");
+        }
+    } else {
+        btn.classList.remove('active-track');
+        releaseWakeLock();
+        if(watchId) navigator.geolocation.clearWatch(watchId);
+        lastValidLat = null; lastValidLng = null;
+        log("GPS", "Suivi live désactivé.");
+    }
+}
+
+function toggleSimulation() {
+    if(isAutoTrack) toggleAutoTrack();
+    isSimulating = !isSimulating;
+    const btn = document.getElementById('simTrackBtn');
+    
+    if(isSimulating) {
+        if(gpxPoints.length === 0) {
+            log("SIM", "Impossible de simuler : aucun fichier de trace chargé.", true);
+            isSimulating = false;
+            return;
+        }
+        btn.classList.add('active-track');
+        navDisplayMode = 'CLOSE';
+
+        if (gpxPoints.length > 0) {
+            map.setView([gpxPoints[0].lat, gpxPoints[0].lon], NAV_CLOSE_ZOOM);
+        }
+
+        requestWakeLock();
+        log("SIM", "Démarrage de la simulation de trajet...");
+        let index = 0;
+        simInterval = setInterval(() => {
+            if(index >= gpxPoints.length) {
+                toggleSimulation();
+                log("SIM", "Simulation terminée (fin du tracé).");
+                return;
+            }
+            let pt = gpxPoints[index];
+            let nextPt = gpxPoints[index + 1] || pt;
+            let heading = Math.atan2(nextPt.lon - pt.lon, nextPt.lat - pt.lat) * (180 / Math.PI);
+            updatePosition(pt.lat, pt.lon, heading);
+            index += Math.max(1, Math.floor(gpxPoints.length / 300));
+        }, 300);
+    } else {
+        btn.classList.remove('active-track');
+        releaseWakeLock();
+        if(simInterval) clearInterval(simInterval);
+        log("SIM", "Simulation arrêtée.");
+    }
+}
+
+function updateTraceDisplay(currentKm) {
+    if(gpxPoints.length === 0) return;
+
+    let pastPoints = [];
+    let futurePoints = [];
+
+    for(let pt of gpxPoints) {
+        if(pt.km <= currentKm) {
+            pastPoints.push([pt.lat, pt.lon]);
+        } else {
+            if(futurePoints.length === 0 && pastPoints.length > 0) {
+                futurePoints.push(pastPoints[pastPoints.length - 1]);
+            }
+            futurePoints.push([pt.lat, pt.lon]);
+        }
+    }
+
+    if(gpxLinePast) gpxLinePast.setLatLngs(pastPoints);
+    if(gpxLineFuture) gpxLineFuture.setLatLngs(futurePoints);
+}
+
+function updatePosition(lat, lng, heading) {
+    if (!isSimulating && lastValidLat !== null && lastValidLng !== null) {
+        let distanceMetres = distanceHaversine(lastValidLat, lastValidLng, lat, lng) * 1000;
+        if (distanceMetres < 10) return;
+    }
+    
+    lastValidLat = lat;
+    lastValidLng = lng;
+
+    if (isAutoTrack || isSimulating) {
+        if (navDisplayMode === 'OVERVIEW') {
+            applyNavBounds(lat, lng);
+        } else {
+            map.panTo([lat, lng], {animate: true, duration: 0.3});
+        }
+    } else {
+        map.panTo([lat, lng], {animate: true, duration: 0.3});
+    }
+    
+    let h = heading || 0;
+    let svg = `<div style="width:32px;height:32px;"><svg class="user-loc-arrow" style="transform: rotate(${h}deg);" viewBox="0 0 24 24"><path fill="#0284c7" stroke="#ffffff" stroke-width="2" d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg></div>`;
+    
+    if(userMarker) {
+        userMarker.setLatLng([lat, lng]);
+        let arrow = userMarker.getElement().querySelector('.user-loc-arrow');
+        if(arrow) arrow.style.transform = `rotate(${h}deg)`;
+    } else {
+        userMarker = L.marker([lat, lng], {icon: L.divIcon({html: svg, iconSize:[32,32], iconAnchor:[16,16], className: 'user-loc-icon'})}).addTo(map);
+    }
+
+    if(gpxPoints.length > 0) {
+        let minDist = Infinity, bestKm = 0;
+        for(let pt of gpxPoints) {
+            let d = distanceHaversine(lat, lng, pt.lat, pt.lon);
+            if(d < minDist) { minDist = d; bestKm = pt.km; }
+        }
+        document.getElementById('kmInput').value = bestKm.toFixed(1);
+        updateTraceDisplay(bestKm);
+        renderList();
+    }
+}
+
+function onKmInputChange() {
+    const kmVal = parseFloat(document.getElementById('kmInput').value) || 0;
+    updateTraceDisplay(kmVal);
+    renderList();
+}
+
+function distanceHaversine(lat1, lon1, lat2, lon2) {
+    const R = 6371.0, dLat = (lat2-lat1)*Math.PI/180, dLon = (lon2-lon1)*Math.PI/180;
+    const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function handleTraceUpload(event) {
+    const file = event.target ? event.target.files[0] : event.file;
+    if(!file) return;
+    
+    isInitialGPXLoad = true;
+    log("TRACE", `Fichier '${file.name}' reçu. Analyse en cours...`);
+    const reader = new FileReader();
+    
+    reader.onload = (e) => {
+        processTraceContent(e.target.result, file.name);
+    };
+    
+    reader.readAsText(file);
+}
+
+// Traitement centralisé d'un contenu de trace (texte brut), quelle que soit sa source :
+// upload fichier local, partage Android, ou transmission depuis GeoRouter via localStorage.
+function processTraceContent(content, filename) {
+    gpxPoints = [];
+    roadbookManeuvers = [];
+
+    if (filename.endsWith('.json') || filename.endsWith('.geojson') || content.trim().startsWith('{')) {
+        parseJSONTrace(content);
+    } else {
+        parseGPXTrace(content);
+    }
+
+    if (gpxPoints.length === 0) {
+        log("TRACE", "Échec de lecture : Aucun point de tracé valide trouvé.", true);
+        return;
+    }
+
+    const maxKm = gpxPoints[gpxPoints.length - 1].km;
+    log("TRACE", `${gpxPoints.length} points extraits. Distance totale : ${maxKm.toFixed(1)} km.`);
+    if(roadbookManeuvers.length > 0) {
+        log("ROADBOOK", `${roadbookManeuvers.length} instructions de guidage extraites !`);
+    }
+
+    if(gpxLineFuture) map.removeLayer(gpxLineFuture);
+    if(gpxLinePast) map.removeLayer(gpxLinePast);
+
+    const allCoords = gpxPoints.map(p => [p.lat, p.lon]);
+
+    gpxLineFuture = L.polyline(allCoords, {color: '#0284c7', weight: 4, opacity: 1.0}).addTo(map);
+    gpxLinePast = L.polyline([], {color: '#16a34a', weight: 4, opacity: 0.5}).addTo(map);
+
+    map.fitBounds(gpxLineFuture.getBounds());
+
+    fetchAndFilterStations();
+}
+
+// --- RÉCEPTION DES DONNÉES EN PROVENANCE DU HUB / GEOROUTER (via localStorage) ---
+const HANDOFF_KEY = 'current_route_data';
+
+function checkIncomingRouteData() {
+    try {
+        const raw = localStorage.getItem(HANDOFF_KEY);
+        if (!raw) return false;
+
+        localStorage.removeItem(HANDOFF_KEY);
+        const payload = JSON.parse(raw);
+        if (!payload || !payload.content) return false;
+
+        const originLabel = payload.source === 'georouter' ? 'GeoRouter' : 'Portail';
+        log("HANDOFF", `📥 Itinéraire reçu depuis ${originLabel}. Chargement automatique...`);
+        isInitialGPXLoad = true;
+        processTraceContent(payload.content, payload.filename || 'itineraire.json');
+        return true;
+    } catch (err) {
+        log("HANDOFF", "Erreur lors de la réception des données transmises : " + err.message, true);
+        return false;
+    }
+}
+
+// Vérification de la présence d'un fichier reçu par la Web Share Target API
+async function checkSharedFile() {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('shared') === 'true') {
+        log("SHARE", "Fichier détecté via le menu Partager d'Android.");
+        try {
+            const cache = await caches.open('incoming-shared-files');
+            const response = await cache.match('/shared-trace-file');
+            if (response) {
+                const blob = await response.blob();
+                const rawFileName = response.headers.get('x-file-name');
+                const fileName = rawFileName ? decodeURIComponent(rawFileName) : 'trace.gpx';
+                
+                const file = new File([blob], fileName, { type: blob.type });
+                log("SHARE", `Chargement automatique du fichier partagé : ${fileName}`);
+                
+                // Traitement du fichier transmis
+                handleTraceUpload({ file: file });
+
+                // Nettoyage du cache temporaire
+                await cache.delete('/shared-trace-file');
+                
+                // Nettoyage de l'URL (?shared=true) sans recharger la page
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        } catch (err) {
+            log("SHARE", "Erreur lors de la récupération du fichier partagé : " + err.message, true);
+        }
+    }
+}
+
+function parseGPXTrace(xmlString) {
+    log("GPX", "Analyse au format GPX/XML...");
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(xmlString, "text/xml");
+    const trkpts = xml.getElementsByTagName("trkpt");
+    let km = 0, prev = null;
+    
+    for(let i=0; i<trkpts.length; i++) {
+        let lat = parseFloat(trkpts[i].getAttribute("lat"));
+        let lon = parseFloat(trkpts[i].getAttribute("lon"));
+        if(prev) km += distanceHaversine(prev.lat, prev.lon, lat, lon);
+        gpxPoints.push({lat, lon, km});
+        prev = {lat, lon};
+    }
+}
+
+function parseJSONTrace(jsonString) {
+    log("VALHALLA", "Analyse au format JSON/GeoJSON...");
+    try {
+        const data = JSON.parse(jsonString);
+        let coords = [];
+
+        if (data.trip && data.trip.legs) {
+            data.trip.legs.forEach(leg => {
+                const decoded = leg.shape ? decodeValhallaPolyline(leg.shape, 6) : [];
+                const baseIndex = coords.length;
+                coords = coords.concat(decoded);
+
+                if (leg.maneuvers && Array.isArray(leg.maneuvers)) {
+                    leg.maneuvers.forEach(m => {
+                        const ptIndex = baseIndex + (m.begin_shape_index || 0);
+                        roadbookManeuvers.push({
+                            instruction: m.instruction || "Continuer",
+                            street: (m.street_names || []).join(', '),
+                            length: m.length || 0,
+                            shapeIndex: ptIndex,
+                            km: 0
+                        });
+                    });
+                }
+            });
+        } 
+        else if (data.features && data.features[0] && data.features[0].geometry) {
+            const geom = data.features[0].geometry;
+            if (geom.type === "LineString") {
+                coords = geom.coordinates.map(c => [c[1], c[0]]);
+            }
+        }
+
+        let km = 0, prev = null;
+        coords.forEach(pt => {
+            let lat = pt[0], lon = pt[1];
+            if (prev) km += distanceHaversine(prev.lat, prev.lon, lat, lon);
+            gpxPoints.push({ lat, lon, km });
+            prev = { lat, lon };
+        });
+
+        roadbookManeuvers.forEach(m => {
+            if (m.shapeIndex < gpxPoints.length) {
+                const pt = gpxPoints[m.shapeIndex];
+                m.km = pt.km;
+                m.lat = pt.lat;
+                m.lon = pt.lon;
+            }
+        });
+
+    } catch (e) {
+        log("VALHALLA", "Erreur lors du décodage du JSON : " + e.message, true);
+    }
+}
+
+async function fetchAndFilterStations() {
+    log("ÉTAPE 1", "Recherche de la base IRVE en local (IndexedDB)...");
+    const cached = await getCachedStaticData();
+    let hasLoadedData = false;
+
+    if (cached) {
+        log("INDEXEDDB", "⚡ Base locale trouvée ! Traitement immédiat.");
+        await processStaticData(cached.data);
+        hasLoadedData = true;
+
+        if (!cached.isOutdated || !navigator.onLine) {
+            if (!navigator.onLine) log("RÉSEAU", "🌐 Mode Hors-ligne : Utilisation exclusive des données locales.");
+            return;
+        }
+        log("RÉSEAU", "🔄 Base locale > 7 jours. Mise à jour en arrière-plan...");
+    }
+
+    if (navigator.onLine) {
+        log("RÉSEAU", "Recherche du fichier IRVE statique sur data.gouv.fr...");
+        fetch("https://www.data.gouv.fr/api/1/datasets/infrastructures-de-recharge-pour-vehicules-electriques-donnees-ouvertes/")
+        .then(res => res.json())
+        .then(data => {
+            const url = data.resources.find(r => r.title.toLowerCase().includes('statique')).latest;
+            log("STATIQUE", `Fichier trouvé. Téléchargement et analyse CSV en cours...`);
+            
+            Papa.parse(url, {
+                download: true,
+                header: true,
+                skipEmptyLines: true,
+                complete: async function(results) {
+                    log("STATIQUE", `${results.data.length} bornes brutes téléchargées. Sauvegarde locale...`);
+                    
+                    const cleanRows = results.data.map(row => ({
+                        puissance_nominale: row.puissance_nominale || row.puissance_max_kw,
+                        coordonneesXY: row.coordonneesXY || row.xy_coords || row.coordonnees,
+                        nom_amenageur: row.nom_amenageur,
+                        nom_station: row.nom_station,
+                        code_insee_commune: row.code_insee_commune || row.code_insee || "",
+                        id_station_itinerance: row.id_station_itinerance,
+                        id_pdc_itinerance: row.id_pdc_itinerance
+                    }));
+
+                    await saveStaticDataToDB(cleanRows);
+                    
+                    if (!hasLoadedData) {
+                        await processStaticData(cleanRows);
+                    }
+                }
+            });
+        }).catch(e => log("RÉSEAU", "Erreur réseau: " + e.message, true));
+    } else if (!hasLoadedData) {
+        log("RÉSEAU", "Vous êtes hors-ligne et aucune base n'a encore été enregistrée.", true);
+    }
+}
+
+async function processStaticData(rawData) {
+    let stationsMap = new Map();
+    let codesInseeSet = new Set();
+
+    rawData.forEach(row => {
+        let pwr = parseFloat(row.puissance_nominale || 0);
+        if (pwr < PUISSANCE_MIN_KW) return;
+        
+        let coordsStr = row.coordonneesXY;
+        if(!coordsStr) return;
+        let c = coordsStr.replace('[','').replace(']','').split(',');
+        let lon = parseFloat(c[0]), lat = parseFloat(c[1]);
+        if(isNaN(lat) || isNaN(lon)) return;
+        
+        let opName = row.nom_amenageur || "IRVE";
+        let stId = row.id_station_itinerance || row.nom_station;
+        let codeInsee = row.code_insee_commune || "";
+        
+        if (codeInsee) codesInseeSet.add(codeInsee);
+
+        if(!stationsMap.has(stId)) {
+            stationsMap.set(stId, {
+                id: stId, 
+                nom: row.nom_station, 
+                code_insee: codeInsee,
+                commune: codeInsee ? `INSEE: ${codeInsee}` : "Commune inconnue",
+                op: opName,
+                lat: lat, lng: lon, pwr: pwr, pdcs: []
+            });
+        }
+        let st = stationsMap.get(stId);
+        if(pwr > st.pwr) st.pwr = pwr;
+        st.pdcs.push(row.id_pdc_itinerance);
+    });
+
+    log("COMMUNES", `Résolution locale des noms de villes pour ${codesInseeSet.size} codes INSEE...`);
+    const communesLookup = await getCommunesMap(codesInseeSet);
+    
+    stationsMap.forEach(st => {
+        if (st.code_insee && communesLookup.has(st.code_insee)) {
+            st.commune = communesLookup.get(st.code_insee);
+        }
+    });
+
+    log("TRAITEMENT", `${stationsMap.size} stations rapides identifiées. Projection sur le tracé...`);
+    
+    let sampled = gpxPoints.filter((_, i) => i % 3 === 0);
+    globalData = [];
+    let activeOperators = new Set();
+    
+    stationsMap.forEach(st => {
+        let minDist = Infinity, bestKm = 0;
+        for(let pt of sampled) {
+            let d = distanceHaversine(st.lat, st.lng, pt.lat, pt.lon);
+            if(d < minDist) { minDist = d; bestKm = pt.km; }
+        }
+        
+        if (minDist <= RAYON_RECHERCHE_KM && bestKm >= KM_MIN_DEPART) {
+            globalData.push({
+                ...st, km: bestKm, detour: minDist,
+                dispo: st.pdcs.length, total: st.pdcs.length, liveInfo: []
+            });
+            activeOperators.add(st.op);
+        }
+    });
+    
+    globalData.sort((a,b) => a.km - b.km);
+
+    let opListContainer = document.getElementById('opCheckboxesList');
+    opListContainer.innerHTML = "";
+    Array.from(activeOperators).sort().forEach(op => {
+        let div = document.createElement('div');
+        div.className = 'multi-select-item';
+        div.innerHTML = `<input type="checkbox" value="${op}" checked onchange="onOpCheckboxChange()"> <span>${op}</span>`;
+        opListContainer.appendChild(div);
+    });
+    updateOpHeaderLabel();
+
+    log("PROJECTION", `${globalData.length} stations retenues le long du tracé.`);
+    renderList();
+    fetchLiveQualicharge();
+}
+
+function toggleSelectAllOps(status) {
+    const checkboxes = document.querySelectorAll('#opCheckboxesList input[type="checkbox"]');
+    checkboxes.forEach(cb => cb.checked = status);
+    onOpCheckboxChange();
+}
+
+function onOpCheckboxChange() {
+    updateOpHeaderLabel();
+    renderList();
+}
+
+function updateOpHeaderLabel() {
+    const checkboxes = document.querySelectorAll('#opCheckboxesList input[type="checkbox"]');
+    const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+    let label = "Opérateurs (Tous)";
+    if(checkedCount === 0) label = "Opérateurs (Aucun)";
+    else if(checkedCount < checkboxes.length) label = `Opérateurs (${checkedCount}/${checkboxes.length})`;
+    document.querySelector('.multi-select-header').innerText = label + " ▼";
+}
+
+function fetchLiveQualicharge() {
+    if(globalData.length === 0) {
+        log("LIVE", "Aucune station en mémoire pour lancer le live.", true);
+        return;
+    }
+    
+    if(!navigator.onLine) {
+        log("LIVE", "🌐 Hors-ligne : Qualicharge Live indisponible.", true);
+        return;
+    }
+
+    log("LIVE", "Recherche du fichier dynamique Qualicharge sur data.gouv.fr...");
+    
+    fetch("https://www.data.gouv.fr/api/1/datasets/infrastructures-de-recharge-pour-vehicules-electriques-donnees-ouvertes/")
+    .then(res => res.json())
+    .then(data => {
+        const resource = data.resources.find(r => 
+            r.title.toLowerCase().includes('dynamique') || 
+            r.title.toLowerCase().includes('disponibilité') ||
+            r.description?.toLowerCase().includes('dynamique')
+        );
+        
+        const liveUrl = resource ? resource.latest : "https://www.data.gouv.fr/fr/datasets/r/411443b1-6667-473f-8217-1c57c167408f";
+        log("LIVE", `URL dynamique trouvée. Téléchargement CSV en cours...`);
+        
+        Papa.parse(liveUrl, {
+            download: true, header: true, skipEmptyLines: true,
+            complete: function(res) {
+                log("LIVE", `Flux Qualicharge chargé (${res.data.length} lignes). Analyse...`);
+                let dict = {};
+                res.data.forEach(r => { if(r.id_pdc_itinerance) dict[r.id_pdc_itinerance] = r; });
+                
+                globalData.forEach(st => {
+                    let countOk = 0;
+                    st.liveInfo = [];
+                    st.pdcs.forEach(pdcId => {
+                        let info = dict[pdcId] || { etat_pdc: "INCONNU", occupation_pdc: "INCONNU", horodatage: "N/A" };
+                        
+                        let etatClean = (info.etat_pdc || "").trim().toLowerCase();
+                        let occupClean = (info.occupation_pdc || "").trim().toLowerCase();
+                        
+                        let estEnService = ["en_service", "active", "available", "disponible"].includes(etatClean);
+                        etatClean = estEnService ? "en_service" : info.etat_pdc;
+
+                        let estLibre = ["libre", "free", "false", "0", "available"].includes(occupClean);
+                        occupClean = estLibre ? "libre" : info.occupation_pdc;
+
+                        if (estEnService && estLibre) {
+                            countOk++;
+                        }
+                        st.liveInfo.push({id: pdcId, etat: etatClean, occup: occupClean, h: (info.horodatage || "").substring(0,16).replace('T',' ')});
+                    });
+                    st.dispo = countOk;
+                });
+                log("LIVE", "Disponibilités mises à jour avec succès !");
+                renderList();
+
+                if (isInitialGPXLoad) {
+                    const term = document.getElementById('terminal-logs');
+                    if (term && term.style.display === 'block') {
+                        toggleLogs();
+                    }
+                    isInitialGPXLoad = false;
+                }
+            },
+            error: function(err) { log("LIVE", "Erreur chargement flux live: " + err.message, true); }
+        });
+    })
+    .catch(e => log("LIVE", "Erreur réseau API live: " + e.message, true));
+}
+
+function renderList() {
+    const kmFilter = parseFloat(document.getElementById('kmInput').value) || 0;
+    
+    if (currentViewMode === 'ROADBOOK') {
+        renderRoadbookList(kmFilter);
+    } else {
+        renderStationsList(kmFilter);
+    }
+}
+
+function renderRoadbookList(kmFilter) {
+    if (roadbookManeuvers.length === 0) {
+        document.getElementById('stationsContainer').innerHTML = "<div style='padding:20px; text-align:center;'>Aucune instruction de guidage trouvée dans ce fichier.<br><small>(Fonctionnalité disponible avec les fichiers JSON Valhalla nativement fournis avec manœuvres)</small></div>";
+        return;
+    }
+
+    let html = "";
+    roadbookManeuvers.forEach((m) => {
+        if (m.km < kmFilter) return;
+
+        html += `
+        <div class='station-card' onclick="if(${m.lat}){ map.setView([${m.lat}, ${m.lon}], 16); }">
+          <div class='station-main'>
+            <div class='nav-block'>
+              <div class='pk-line'>
+                <div class='borne-container'><div class='chapeau-rouge'></div><div class='base-blanche'>km</div></div>
+                <span class='pk-val'>${(m.km - kmFilter).toFixed(1)}</span>
+              </div>
+            </div>
+            <div class='info-block'>
+              <div class='op-title' style='color: var(--text);'>${m.instruction}</div>
+              ${m.street ? `<div class='st-name'>🛣️ ${m.street}</div>` : ''}
+            </div>
+            <div class='tech-block'>
+              <div style='font-weight:bold; font-size:11px; opacity:0.8;'>+${m.length.toFixed(1)} km</div>
+            </div>
+          </div>
+        </div>`;
+    });
+
+    document.getElementById('stationsContainer').innerHTML = html || "<div style='padding:20px; text-align:center;'>Fin du guidage (aucune instruction restante).</div>";
+}
+
+function renderStationsList(kmFilter) {
+    let selectedOps = new Set();
+    document.querySelectorAll('#opCheckboxesList input[type="checkbox"]').forEach(cb => {
+        if(cb.checked) selectedOps.add(cb.value);
+    });
+
+    for(let k in markers) map.removeLayer(markers[k]);
+    markers = {};
+    
+    let html = "";
+    globalData.forEach((s, i) => {
+        if (s.km < kmFilter) return;
+        if (selectedOps.size > 0 && !selectedOps.has(s.op)) return;
+        
+        let status = s.dispo === 0 ? 'dispo-alert' : (s.dispo <= s.total/3 ? 'dispo-warn' : 'dispo-ok');
+        let color = s.dispo === 0 ? '#dc2626' : (s.dispo <= s.total/3 ? '#d97706' : '#16a34a');
+        
+        let m = L.circleMarker([s.lat, s.lng], {radius:8, fillColor:color, color:'#fff', weight:1, fillOpacity:0.9}).addTo(map);
+        
+        const coordsStr = `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}`;
+        const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}`;
+
+        m.bindPopup(`
+          <b>${s.op}</b><br>${s.nom}<br>
+          <div style="margin-top:6px; font-size:11px;">
+            📍 <a href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" style="color: #0284c7; text-decoration: underline; font-weight: bold;">
+              ${coordsStr} ↗
+            </a>
+          </div>
+        `);
+        markers[i] = m;
+        
+        let pdcsHtml = s.liveInfo.map(p => `<tr><td>${p.id}</td><td><b>${p.etat}</b></td><td>${p.occup}</td><td>${p.h}</td></tr>`).join('');
+        if(!pdcsHtml) pdcsHtml = `<tr><td colspan="4">Aucun statut disponible</td></tr>`;
+        
+        html += `
+        <div class='station-card' onclick="map.setView([${s.lat}, ${s.lng}], 14); markers[${i}].openPopup();">
+          <div class='station-main'>
+            <div class='nav-block'>
+              <div class='pk-line'>
+                <div class='borne-container'><div class='chapeau-rouge'></div><div class='base-blanche'>km</div></div>
+                <span class='pk-val'>${(s.km - kmFilter).toFixed(1)}</span>
+              </div>
+              <div class='detour-line'>↳<i>${s.detour.toFixed(2)}</i></div>
+            </div>
+            <div class='info-block'>
+              <div class='op-title'>${s.op}</div>
+              <div class='st-name' title="${s.nom}">${s.nom}</div>
+              <div class='st-commune'>${s.commune}</div>
+            </div>
+            <div class='tech-block' onclick="event.stopPropagation(); document.getElementById('pdc_${i}').classList.toggle('show')">
+              <div style='font-weight:bold; font-size:12px;'>${s.pwr}kW</div>
+              <div class='${status}' style='font-size:11px; font-weight:bold;'>${s.dispo}/${s.total} PDC</div>
+            </div>
+          </div>
+          <div id='pdc_${i}' class='pdc-panel'>
+            <table class='pdc-table'>
+              <thead><tr><th>PDC</th><th>Etat</th><th>Occupation</th><th>Heure</th></tr></thead>
+              <tbody>${pdcsHtml}</tbody>
+            </table>
+          </div>
+        </div>`;
+    });
+    
+    document.getElementById('stationsContainer').innerHTML = html || "<div style='padding:20px; text-align:center;'>Aucune station trouvée avec ces critères.</div>";
+}
+
+// Initialisation de la carte
+initMap();
+
+// Vérification immédiate d'un itinéraire transmis par GeoRouter / le Hub (localStorage)
+const hasIncomingRoute = checkIncomingRouteData();
+
+// Enregistrement du Service Worker & vérification des fichiers partagés
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').then(() => {
+      log("PWA", "Service Worker actif.");
+      if (!hasIncomingRoute) checkSharedFile();
+    }).catch(err => {
+      log("PWA", "Erreur d'enregistrement du Service Worker : " + err.message, true);
+      if (!hasIncomingRoute) checkSharedFile();
+    });
+  });
+}
+</script>
+</body>
+</html>
