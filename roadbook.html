@@ -116,7 +116,6 @@
   
   <div id="main-content">
     <div class="header-controls">
-      <a href="./index.html" class="refresh-btn" title="Retour à l'accueil" style="text-decoration:none;">🏠</a>
       <input type='number' id='kmInput' class='input-field' value="0.0" step="0.1" oninput='onKmInputChange()' max="9999">
 
       <button id="btnToggleMode" class="refresh-btn" onclick="toggleViewMode()" title="Changer de vue (Stations / Feuille de route)">⚡</button>
@@ -135,6 +134,7 @@
       <button class="refresh-btn" onclick="document.getElementById('gpxInput').click()" title="Charger Trace (GPX/JSON Valhalla)">📁</button>
       <button class="refresh-btn" onclick="toggleLogs()" title="Logs">📝</button>
       <button class='refresh-btn' onclick="fetchLiveQualicharge()" title="Rafraîchir Live">🔄</button>
+      <a href="./index.html" class="refresh-btn" title="Retour à l'accueil" style="text-decoration:none; margin-left:auto;">🏠</a>
     </div>
     <div id="stationsContainer">
         <div style="text-align:center; opacity:0.6; padding: 20px;">Veuillez charger un fichier GPX ou JSON Valhalla pour commencer.<br><br>💡 (Bouton 📁 ou via Partage Android)</div>
@@ -1094,6 +1094,10 @@ function renderList() {
 }
 
 function renderRoadbookList(kmFilter) {
+    // Mode "instructions de conduite" : les points des stations VE sont masqués de la carte
+    for(let k in markers) map.removeLayer(markers[k]);
+    markers = {};
+
     if (roadbookManeuvers.length === 0) {
         document.getElementById('stationsContainer').innerHTML = "<div style='padding:20px; text-align:center;'>Aucune instruction de guidage trouvée dans ce fichier.<br><small>(Fonctionnalité disponible avec les fichiers JSON Valhalla nativement fournis avec manœuvres)</small></div>";
         return;
