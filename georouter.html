@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#2c3e50" />
+  <meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)" />
   <title>GeoRouter - Valhalla (Stadia Maps)</title>
 
   <!-- Leaflet CSS & JS -->
@@ -14,6 +15,21 @@
   <script src="./topojson-client.min.js"></script>
 
   <style>
+    :root {
+      --bg: #f8fafc; --text: #2c3e50; --muted: #999; --border: #e0e0e0;
+      --card-bg: #ffffff; --input-bg: #ffffff; --input-border: #ccc;
+      --options-bg: #f8f9fa; --options-border: #e9ecef;
+      --hover-bg: #e8f4fc;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #121212; --text: #e5e7eb; --muted: #9ca3af; --border: #333333;
+        --card-bg: #18181b; --input-bg: #18181b; --input-border: #3f3f46;
+        --options-bg: #1e293b; --options-border: #334155;
+        --hover-bg: #1e3a4f;
+      }
+    }
+
     * { box-sizing: border-box; }
     
     body, html {
@@ -22,13 +38,17 @@
       height: 100%;
       width: 100%;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      overscroll-behavior: none;
+      touch-action: pan-x pan-y;
     }
     
     #map {
       height: 50vh;
+      height: 50svh;
       width: 100%;
       z-index: 1;
       position: relative;
@@ -36,9 +56,11 @@
 
     .panel {
       height: 50vh;
+      height: 50svh;
       width: 100%;
       z-index: 2;
-      background: #ffffff;
+      background: var(--card-bg);
+      color: var(--text);
       padding: 12px;
       box-shadow: 0 -4px 15px rgba(0, 0, 0, 0.1);
       display: flex;
@@ -48,7 +70,7 @@
       -webkit-overflow-scrolling: touch;
     }
 
-    h2 { margin: 0 0 2px 0; font-size: 1.05rem; color: #2c3e50; }
+    h2 { margin: 0 0 2px 0; font-size: 1.05rem; color: var(--text); }
     
     .input-group { position: relative; display: flex; flex-direction: column; gap: 4px; }
     .input-row { display: flex; gap: 6px; align-items: center; }
@@ -63,10 +85,11 @@
     input[type="text"], select {
       width: 100%;
       padding: 8px 10px;
-      border: 1px solid #ccc;
+      border: 1px solid var(--input-border);
       border-radius: 6px;
       font-size: 0.9rem;
-      background-color: #fff;
+      background-color: var(--input-bg);
+      color: var(--text);
     }
 
     .input-with-clear input {
@@ -78,7 +101,7 @@
       right: 6px;
       background: none;
       border: none;
-      color: #999;
+      color: var(--muted);
       font-size: 15px;
       font-weight: bold;
       cursor: pointer;
@@ -88,7 +111,7 @@
       line-height: 1;
       touch-action: manipulation;
     }
-    .btn-clear-text:active { background-color: #eee; color: #333; }
+    .btn-clear-text:active { background-color: var(--options-bg); color: var(--text); }
 
     .btn-remove-step {
       background-color: #ffebee;
@@ -106,10 +129,10 @@
       display: flex;
       gap: 8px;
       align-items: center;
-      background: #f8f9fa;
+      background: var(--options-bg);
       padding: 6px 10px;
       border-radius: 6px;
-      border: 1px solid #e9ecef;
+      border: 1px solid var(--options-border);
       justify-content: space-between;
     }
 
@@ -118,23 +141,23 @@
       align-items: center;
       gap: 5px;
       font-size: 0.8rem;
-      color: #333;
+      color: var(--text);
     }
 
     .btn-toggle-api {
-      background: #e9ecef;
-      border: 1px solid #ced4da;
+      background: var(--options-bg);
+      border: 1px solid var(--options-border);
       padding: 3px 8px;
       border-radius: 4px;
       font-size: 0.75rem;
       font-weight: 600;
-      color: #495057;
+      color: var(--text);
       cursor: pointer;
       user-select: none;
       transition: all 0.2s;
     }
     .btn-toggle-api:active {
-      background: #dee2e6;
+      background: var(--hover-bg);
     }
 
     .checkbox-label {
@@ -151,8 +174,8 @@
       top: 100%;
       left: 0;
       right: 0;
-      background: white;
-      border: 1px solid #ddd;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
       border-radius: 0 0 8px 8px;
       max-height: 180px;
       overflow-y: auto;
@@ -164,11 +187,12 @@
       padding: 10px 12px;
       cursor: pointer;
       font-size: 0.85rem;
-      border-bottom: 1px solid #eee;
+      color: var(--text);
+      border-bottom: 1px solid var(--border);
       -webkit-tap-highlight-color: rgba(52, 152, 219, 0.2);
       user-select: none;
     }
-    .suggestion-item:active { background: #e8f4fc; }
+    .suggestion-item:active { background: var(--hover-bg); }
 
     .btn-grid {
       display: flex;
@@ -193,18 +217,20 @@
     .btn-success:hover { background: #27ae60; }
     .btn-info { background: #8e44ad; color: white; }
     .btn-info:hover { background: #732d91; }
-    .btn-secondary { background: #7f8c8d; color: white; }
+    .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--input-border); }
+    .btn-secondary:hover, .btn-secondary:active { background: var(--hover-bg); }
+    .btn-secondary:disabled { opacity: 0.4; cursor: default; }
     .btn-warning { background: #f39c12; color: white; }
     .btn-danger { background: #e74c3c; color: white; }
     .btn-danger:hover { background: #c0392b; }
-    .btn-icon { padding: 6px 10px; flex: initial; }
+    .btn-icon { padding: 8px; flex: initial; width: 38px; display: inline-flex; align-items: center; justify-content: center; }
 
     .instructions {
       margin-top: 8px;
       padding-top: 8px;
-      border-top: 1px solid #eee;
+      border-top: 1px solid var(--border);
     }
-    .step-item { font-size: 0.8rem; padding: 5px 0; border-bottom: 1px dashed #eee; }
+    .step-item { font-size: 0.8rem; padding: 5px 0; border-bottom: 1px dashed var(--border); color: var(--text); }
     #loading { display: none; color: #e67e22; font-weight: bold; font-size: 0.85rem; text-align: center; }
 
     .pin-marker {
@@ -275,7 +301,7 @@
   <div class="panel" id="ui-panel">
     <div style="display:flex; align-items:center; justify-content:space-between;">
       <h2>GeoRouter (Valhalla)</h2>
-      <a href="./index.html" title="Retour à l'accueil" style="text-decoration:none; font-size:0.78rem; font-weight:600; color:#3498db; border:1px solid #3498db; border-radius:6px; padding:4px 8px; white-space:nowrap;">🏠 Accueil</a>
+      <a href="./index.html" class="btn btn-secondary btn-icon" title="Retour à l'accueil" style="text-decoration:none; flex-shrink:0;">🏠</a>
     </div>
 
     <div id="points-container">
