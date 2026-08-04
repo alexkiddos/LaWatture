@@ -483,13 +483,20 @@ function handleButton2Click() {
     }
 }
 
+// Marge de recadrage : évite que la trace ne passe sous les boutons de contrôle Leaflet
+// (empilés en haut à gauche : zoom + boutons custom, et la barre d'échelle en bas à gauche)
+const FIT_BOUNDS_OPTIONS = {
+    paddingTopLeft: [60, 170],
+    paddingBottomRight: [50, 60]
+};
+
 function fitTraceBounds() {
     if (gpxLineFuture) {
         let bounds = gpxLineFuture.getBounds();
         if (gpxLinePast && gpxLinePast.getLatLngs().length > 0) {
             bounds.extend(gpxLinePast.getBounds());
         }
-        map.fitBounds(bounds);
+        map.fitBounds(bounds, FIT_BOUNDS_OPTIONS);
         log("MAP", "Recadrage sur la trace.");
     } else {
         map.setView([INITIAL_LAT, INITIAL_LNG], INITIAL_ZOOM);
@@ -500,7 +507,7 @@ function fitTraceBounds() {
 function applyNavBounds(lat, lng) {
     if (gpxLineFuture && gpxLineFuture.getLatLngs().length > 0) {
         map.fitBounds(gpxLineFuture.getBounds(), { 
-            padding: [30, 30],
+            ...FIT_BOUNDS_OPTIONS,
             maxZoom: NAV_MAX_OVERVIEW_ZOOM 
         });
     } else if (lat !== null && lng !== null) {
@@ -717,7 +724,7 @@ function processTraceContent(content, filename) {
     gpxLineFuture = L.polyline(allCoords, {color: '#0284c7', weight: 4, opacity: 1.0}).addTo(map);
     gpxLinePast = L.polyline([], {color: '#16a34a', weight: 4, opacity: 0.5}).addTo(map);
 
-    map.fitBounds(gpxLineFuture.getBounds());
+    map.fitBounds(gpxLineFuture.getBounds(), FIT_BOUNDS_OPTIONS);
 
     fetchAndFilterStations();
 }
