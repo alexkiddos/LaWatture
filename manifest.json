@@ -1,6 +1,6 @@
 {
-  "name": "Portail Roadbook VE",
-  "short_name": "Roadbook VE",
+  "name": "LaWatture",
+  "short_name": "LaWatture",
   "description": "Préparez un itinéraire avec GeoRouter et suivez-le en direct avec Roadbook VE.",
   "start_url": "./index.html",
   "scope": "./",
