@@ -11,8 +11,8 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- Librairie client TopoJSON (3 Ko) pour lire le fichier de surcouche -->
-  <script src="./topojson-client.min.js"></script>
+  <!-- Turf.js pour le matching géométrique tracé <-> tronçons payants (calcul du péage) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
 
   <style>
     :root {
@@ -390,6 +390,155 @@
     let currentGeocoder = 'photon';
     let ignoreNextMapClick = false;
 
+    /* --- COÛT PÉAGE : source unique = la surcouche BD Carto elle-même ---
+       Le fichier autoroutes_payantes_surcouche.geojson (sortie de
+       generate_surcouche_geojson.py) est chargé tel quel par Leaflet, sans
+       conversion topojson intermédiaire. Il ne contient QUE les tronçons
+       payants, chacun avec un 'cout_troncon_eur' déjà figé - pas de tarif
+       au km à appliquer côté app. Pas de fichier séparé à maintenir : la
+       surcouche affichée sur la carte EST la source du calcul. */
+    const TOLERANCE_MATCH_METRES = 40;    // distance max tracé <-> tronçon BD Carto pour considérer un "match"
+    let tollIndex = null; // rempli par buildTollIndex() une fois la surcouche chargée
+
+    /* Grille spatiale grossière pour ne comparer un point du tracé qu'aux
+       tronçons payants réellement proches (évite de tester les ~10 000+
+       tronçons de la surcouche à chaque point du tracé). */
+    const GRID_CELL_DEG = 0.05; // ~5 km
+
+    function cellKey(lng, lat) {
+      return `${Math.floor(lng / GRID_CELL_DEG)}_${Math.floor(lat / GRID_CELL_DEG)}`;
+    }
+
+    function buildTollIndex(geoData) {
+      const lines = [];
+      const grid = new Map();
+
+      function ajouterLigne(coords, cout, numero, idxOriginal) {
+        if (!coords || coords.length < 2) return;
+        let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+        coords.forEach(([lng, lat]) => {
+          if (lng < minLng) minLng = lng;
+          if (lng > maxLng) maxLng = lng;
+          if (lat < minLat) minLat = lat;
+          if (lat > maxLat) maxLat = lat;
+        });
+
+        // idTroncon identifie le tronçon D'ORIGINE (une feature peut être
+        // scindée en plusieurs lignes si MultiLineString) - sert à ne
+        // compter son coût qu'UNE SEULE FOIS même si le tracé la traverse
+        // sur plusieurs points/segments successifs.
+        const idx = lines.length;
+        lines.push({ coords, cout, numero, idTroncon: idxOriginal, turfLine: turf.lineString(coords) });
+
+        const cx0 = Math.floor(minLng / GRID_CELL_DEG), cx1 = Math.floor(maxLng / GRID_CELL_DEG);
+        const cy0 = Math.floor(minLat / GRID_CELL_DEG), cy1 = Math.floor(maxLat / GRID_CELL_DEG);
+        for (let cx = cx0; cx <= cx1; cx++) {
+          for (let cy = cy0; cy <= cy1; cy++) {
+            const key = `${cx}_${cy}`;
+            if (!grid.has(key)) grid.set(key, []);
+            grid.get(key).push(idx);
+          }
+        }
+      }
+
+      geoData.features.forEach((feature, idxOriginal) => {
+        const props = feature.properties || {};
+        const cout = (props.cout_troncon_eur != null) ? props.cout_troncon_eur : 0;
+        const numero = props.numero || props.autoroute || '?';
+        const geom = feature.geometry;
+        if (!geom) return;
+
+        if (geom.type === 'LineString') {
+          ajouterLigne(geom.coordinates, cout, numero, idxOriginal);
+        } else if (geom.type === 'MultiLineString') {
+          // MultiLineString : le coût du tronçon est réparti au prorata de
+          // la longueur de chaque sous-ligne (rare en BD Carto, sécurité).
+          const longueurs = geom.coordinates.map(c => turf.length(turf.lineString(c), { units: 'kilometers' }));
+          const totalKm = longueurs.reduce((a, b) => a + b, 0) || 1;
+          geom.coordinates.forEach((c, i) => {
+            ajouterLigne(c, cout * (longueurs[i] / totalKm), numero, idxOriginal);
+          });
+        }
+      });
+
+      console.log(`✓ Index péage construit : ${lines.length} tronçons`);
+      return { lines, grid };
+    }
+
+    /* Renvoie le tronçon payant le plus proche d'un point (lat, lng), ou
+       null si aucun tronçon n'est présent dans son voisinage indexé. */
+    function tollLeProchePoint(lat, lng) {
+      if (!tollIndex || tollIndex.lines.length === 0) return null;
+
+      const cx = Math.floor(lng / GRID_CELL_DEG);
+      const cy = Math.floor(lat / GRID_CELL_DEG);
+      const candidats = new Set();
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const key = `${cx + dx}_${cy + dy}`;
+          const bucket = tollIndex.grid.get(key);
+          if (bucket) bucket.forEach(i => candidats.add(i));
+        }
+      }
+      if (candidats.size === 0) return null;
+
+      const pt = turf.point([lng, lat]);
+      let meilleur = null, meilleureDist = Infinity;
+      candidats.forEach(idx => {
+        const ligne = tollIndex.lines[idx];
+        const d = turf.pointToLineDistance(pt, ligne.turfLine, { units: 'meters' });
+        if (d < meilleureDist) { meilleureDist = d; meilleur = ligne; }
+      });
+
+      if (meilleureDist > TOLERANCE_MATCH_METRES) return null;
+      return meilleur;
+    }
+
+    
+    /* --- CALCUL DU COÛT PÉAGE PAR MATCHING GÉOMÉTRIQUE ---
+       Pour chaque segment du tracé Valhalla, on cherche le tronçon payant le
+       plus proche dans la surcouche BD Carto. S'il est à moins de
+       TOLERANCE_MATCH_METRES, ce tronçon est marqué "traversé". Aucun coût
+       n'est calculé ici : chaque tronçon BD Carto porte déjà son propre
+       cout_troncon_eur (figé lors de la génération du geojson) - on se
+       contente de sommer les coûts des tronçons DISTINCTS traversés
+       (idTroncon dédupliqué, pour ne jamais compter deux fois un même
+       tronçon revisité par plusieurs points successifs du tracé). Aucun
+       match trouvé = segment gratuit (BD Carto fait foi). */
+    function calculerCoutPeage(routeCoords) {
+      if (!tollIndex) return { total: 0, detail: [], indexIndisponible: true };
+
+      const tronconsTraverses = new Map(); // idTroncon -> { numero, cout }
+
+      for (let i = 0; i < routeCoords.length - 1; i++) {
+        const [lat1, lng1] = routeCoords[i];
+        const [lat2, lng2] = routeCoords[i + 1];
+        const midLat = (lat1 + lat2) / 2, midLng = (lng1 + lng2) / 2;
+
+        const troncon = tollLeProchePoint(midLat, midLng);
+        if (!troncon) continue;
+
+        if (!tronconsTraverses.has(troncon.idTroncon)) {
+          tronconsTraverses.set(troncon.idTroncon, { numero: troncon.numero, cout: troncon.cout });
+        }
+      }
+
+      let total = 0;
+      const parAutoroute = {}; // { "A6": { cout: 4.4, nbTroncons: 3 } }
+      tronconsTraverses.forEach(({ numero, cout }) => {
+        total += cout;
+        if (!parAutoroute[numero]) parAutoroute[numero] = { cout: 0, nbTroncons: 0 };
+        parAutoroute[numero].cout += cout;
+        parAutoroute[numero].nbTroncons += 1;
+      });
+
+      const detail = Object.entries(parAutoroute)
+        .map(([numero, v]) => ({ numero, cout: v.cout, nbTroncons: v.nbTroncons }))
+        .sort((a, b) => b.cout - a.cout);
+
+      return { total, detail };
+    }
+
     function toggleApiEngine() {
       const btn = document.getElementById('api-toggle-btn');
       if (currentGeocoder === 'photon') {
@@ -415,32 +564,31 @@
     map.createPane('tollPane');
     map.getPane('tollPane').style.zIndex = 350;
 
-    /* --- SURCOUCHE TRONÇONS PAYANTS (TOPOJSON) --- */
+    /* --- SURCOUCHE TRONÇONS PAYANTS (GEOJSON, rendu Canvas) ---
+       Rendu en Canvas plutôt que SVG (défaut Leaflet) : nettement plus
+       rapide avec plusieurs milliers de tracés (un seul <canvas>, pas un
+       <path> DOM par tronçon). */
     const tollLayer = L.geoJSON(null, {
       pane: 'tollPane',
+      renderer: L.canvas({ pane: 'tollPane' }),
       style: {
         color: '#e74c3c',
         weight: 5,
         opacity: 0.9
       }
     });
-    
-    fetch('./autoroutes_payantes.topojson')
+
+    fetch('./autoroutes_payantes_surcouche.geojson')
       .then(res => {
-        if (!res.ok) return fetch('./autoroutes_payantes.topojson.txt');
-        return res;
-      })
-      .then(res => {
-        if (!res.ok) throw new Error("Fichier TopoJSON introuvable");
+        if (!res.ok) throw new Error("Fichier GeoJSON introuvable");
         return res.json();
       })
-      .then(topoData => {
-        const firstObjectName = Object.keys(topoData.objects)[0];
-        const geoData = topojson.feature(topoData, topoData.objects[firstObjectName]);
-
+      .then(geoData => {
         tollLayer.clearLayers();
         tollLayer.addData(geoData);
         tollLayer.addTo(map);
+
+        tollIndex = buildTollIndex(geoData);
 
         if (tollLayer.getBounds().isValid()) {
           map.fitBounds(tollLayer.getBounds(), { padding: [20, 20] });
@@ -927,7 +1075,26 @@
       const statsDiv = document.getElementById('route-stats');
       const listDiv = document.getElementById('instructions-list');
 
-      statsDiv.textContent = `Distance : ${routeSummary.length.toFixed(2)} km | Temps : ~${formatDuration(routeSummary.time)}`;
+      const peage = calculerCoutPeage(decodedRouteCoords);
+      const peageStr = peage.indexIndisponible
+        ? ' | Péage : indisponible (surcouche non chargée)'
+        : (peage.total > 0.01 ? ` | Péage : ~${peage.total.toFixed(2)} €` : ' | Péage : sans péage');
+      statsDiv.textContent = `Distance : ${routeSummary.length.toFixed(2)} km | Temps : ~${formatDuration(routeSummary.time)}${peageStr}`;
+
+      const oldDetail = document.getElementById('route-peage-detail');
+      if (oldDetail) oldDetail.remove();
+
+      if (peage.detail.length > 0) {
+        const detailStr = peage.detail
+          .map(d => `${d.numero === '?' ? 'segment non identifié' : d.numero}: ${d.nbTroncons} tronçon${d.nbTroncons > 1 ? 's' : ''} → ${d.cout.toFixed(2)} €`)
+          .join(' · ');
+        const detailDiv = document.createElement('div');
+        detailDiv.id = 'route-peage-detail';
+        detailDiv.style.cssText = 'font-size:0.75rem; color:var(--muted); margin-bottom:6px;';
+        detailDiv.textContent = detailStr;
+        statsDiv.insertAdjacentElement('afterend', detailDiv);
+      }
+
       listDiv.innerHTML = '';
 
       let cumulatedKm = 0;
