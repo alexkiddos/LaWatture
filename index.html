@@ -3,106 +3,135 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0B0E" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="manifest" href="./manifest.json">
 <title>LaWatture</title>
+<script>
+  (function() {
+    var mq = window.matchMedia('(prefers-color-scheme: dark)');
+    document.documentElement.setAttribute('data-theme', mq.matches ? 'dark' : 'light');
+    mq.addEventListener('change', function(e) {
+      document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+    });
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --bg: #f8fafc; --text: #0f172a; --muted: #64748b; --card-bg: #ffffff; --border: #e2e8f0;
-    --accent: #0284c7; --accent-2: #16a34a;
+  :root[data-theme="light"] {
+    --bg: #FFFFFF; --ink: #111114; --muted: #6B6B72; --line: #EBEBEE; --panel: #FAFAFB;
+    --accent: #0B72E7; --on-accent: #FFFFFF;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #121212; --text: #e5e7eb; --muted: #9ca3af; --card-bg: #18181b; --border: #2e2e33;
-      --accent: #38bdf8; --accent-2: #4ade80;
-    }
+  :root[data-theme="dark"] {
+    --bg: #0B0B0E; --ink: #F2F2F5; --muted: #8B8B93; --line: #232329; --panel: #141418;
+    --accent: #4FA3FF; --on-accent: #0B0B0E;
   }
   * { box-sizing: border-box; }
-  body, html {
-    margin: 0; padding: 0; height: 100%; width: 100%;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: var(--bg); color: var(--text);
-  }
-  .wrap {
-    max-width: 640px; margin: 0 auto; padding: 28px 18px 48px;
-    min-height: 100dvh; display: flex; flex-direction: column;
-  }
-  header { text-align: center; margin-bottom: 24px; }
-  header .logo { font-size: 42px; line-height: 1; margin-bottom: 6px; }
-  header h1 { font-size: 1.3rem; margin: 0 0 4px; }
-  header p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); transition: background 0.2s, color 0.2s; }
+  body { font-family: 'Inter', sans-serif; }
+  .wrap { max-width: 620px; margin: 0 auto; padding: 24px 24px 60px; min-height: 100dvh; position: relative; overflow: hidden; }
 
-  .card {
-    background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px;
-    padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-  }
-  .card h2 { margin: 0 0 4px; font-size: 1.05rem; display: flex; align-items: center; gap: 8px; }
-  .card p.desc { margin: 0 0 14px; font-size: 0.85rem; color: var(--muted); line-height: 1.4; }
+  .watermark { position: absolute; top: 2px; right: 2px; width: 168px; height: 168px; opacity: 0.14; pointer-events: none; }
+  :root[data-theme="dark"] .watermark { opacity: 0.18; }
 
+  header { position: relative; margin-bottom: 22px; padding-top: 2px; }
+  h1 {
+    font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 3.1rem; line-height: 0.98;
+    margin: 10px 0 10px; letter-spacing: -0.02em;
+  }
+  header p.sub { margin: 0; color: var(--muted); font-size: 1rem; max-width: 34ch; line-height: 1.55; }
+
+  /* --- carte héros : action principale --- */
+  .hero {
+    background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 14px;
+    padding: 30px 26px 28px; margin-bottom: 28px; position: relative;
+  }
+  .hero .kicker { font-family: 'Inter', sans-serif; font-weight: 600; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .hero h2 { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1.7rem; margin: 8px 0 10px; letter-spacing: -0.01em; color: var(--ink); }
+  .hero p.desc { margin: 0 0 22px; font-size: 0.94rem; line-height: 1.55; max-width: 40ch; color: var(--muted); }
   .btn {
-    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-    width: 100%; padding: 12px 14px; border: none; border-radius: 10px;
-    font-weight: 700; font-size: 0.92rem; cursor: pointer; text-decoration: none;
-    transition: filter 0.15s;
+    display: inline-flex; align-items: center; gap: 8px; border: none; border-radius: 999px;
+    font-family: 'Inter', sans-serif; font-weight: 600; font-size: 0.9rem; cursor: pointer;
+    text-decoration: none; padding: 12px 22px;
   }
-  .btn:active { filter: brightness(0.92); }
-  .btn-primary { background: var(--accent); color: #fff; }
-  .btn-secondary { background: var(--accent-2); color: #fff; }
-  .btn-outline { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  .btn-solid { background: var(--accent); color: var(--on-accent); }
+  .btn-solid:hover { filter: brightness(1.06); }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .section-label {
+    font-family: 'Inter', sans-serif; font-weight: 600; font-size: 0.72rem; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 16px;
+  }
+
+  /* --- tuiles secondaires : chemins alternatifs, clairement cliquables --- */
+  .secondary-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tile {
+    display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px 16px 14px; text-decoration: none; color: var(--ink); cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .tile:hover { border-color: var(--accent); }
+  .tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .tile-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 4px; }
+  .tile h3 { font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 1rem; margin: 0; }
+  .tile:hover h3 { color: var(--accent); }
+  .tile-arrow { color: var(--muted); font-size: 1rem; line-height: 1; transition: transform 0.15s, color 0.15s; flex: none; }
+  .tile:hover .tile-arrow { color: var(--accent); transform: translateX(2px); }
+  .tile p { margin: 0; font-size: 0.82rem; color: var(--muted); line-height: 1.4; }
 
   input[type="file"] { display: none; }
-
-  .status-line {
-    font-size: 0.78rem; margin-top: 10px; color: var(--muted); text-align: center; min-height: 16px;
-  }
+  .status-line { font-family: 'Inter', sans-serif; font-size: 0.78rem; margin: 14px 0 0; color: var(--muted); min-height: 16px; }
   .status-line.error { color: #dc2626; }
-  .status-line.ok { color: var(--accent-2); }
+  .status-line.ok { color: var(--accent); }
 
-  footer { margin-top: auto; padding-top: 24px; text-align: center; font-size: 0.72rem; color: var(--muted); }
-  footer a { color: var(--muted); }
-
-  .tag {
-    display: inline-block; font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.04em; padding: 2px 7px; border-radius: 999px; background: var(--border); color: var(--muted);
-    margin-left: 6px; vertical-align: middle;
-  }
+  footer { margin-top: 48px; text-align: center; }
+  footer p { font-family: 'Inter', sans-serif; font-size: 0.72rem; color: var(--muted); letter-spacing: 0.02em; }
 </style>
 </head>
 <body>
   <div class="wrap">
+    <svg class="watermark" viewBox="0 0 100 100" aria-hidden="true">
+      <path d="M50,6 C71,6 88,23 88,44 C88,68 50,96 50,96 C50,96 12,68 12,44 C12,23 29,6 50,6 Z"
+            fill="none" stroke="var(--accent)" stroke-width="1.3"/>
+      <polyline points="57,22 41,48 52,48 46,74 66,42 54,42 57,22" fill="none" stroke="var(--accent)" stroke-width="1.3"/>
+    </svg>
+
     <header>
-      <div class="logo">🚗🔌🗺️</div>
       <h1>LaWatture</h1>
-      <p>Préparez et suivez vos trajets en véhicule électrique</p>
+      <p class="sub">Préparez et suivez vos trajets en véhicule électrique.</p>
     </header>
 
-    <!-- Parcours 1 : Import direct -->
-    <div class="card">
-      <h2>📂 Ouvrir un Roadbook existant</h2>
-      <p class="desc">Vous avez déjà un fichier de trace (<code>.gpx</code> ou <code>.json</code> Valhalla) ? Chargez-le directement, il sera automatiquement ouvert dans Roadbook VE.</p>
-      <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">📁 Choisir un fichier</button>
-      <input type="file" id="fileInput" accept=".gpx,.json,.geojson" onchange="handleFileSelect(event)">
-      <div class="status-line" id="importStatus"></div>
+    <div class="hero">
+      <div class="kicker">Commencer ici</div>
+      <h2>Tracer un itinéraire</h2>
+      <p class="desc">Calculez un trajet avec GeoRouter — distance, péages, coût — puis envoyez-le vers Roadbook VE.</p>
+      <a class="btn btn-solid" href="./georouter.html">Ouvrir GeoRouter →</a>
     </div>
 
-    <!-- Parcours 2 : Création -->
-    <div class="card">
-      <h2>🧭 Tracer un nouvel itinéraire</h2>
-      <p class="desc">Calculez un nouvel itinéraire (départ, arrivée, étapes) avec GeoRouter, puis envoyez-le en un clic vers Roadbook VE pour le suivi live et les bornes de recharge.</p>
-      <a class="btn btn-secondary" href="./georouter.html">🗺️ Ouvrir GeoRouter</a>
+    <div class="section-label">Autres façons de démarrer</div>
+    <div class="secondary-row">
+      <label class="tile" for="fileInput">
+        <div class="tile-head">
+          <h3>Importer une trace</h3>
+          <span class="tile-arrow" aria-hidden="true">→</span>
+        </div>
+        <p>Fichier .gpx ou .json existant</p>
+      </label>
+      <a class="tile" href="./roadbook.html">
+        <div class="tile-head">
+          <h3>Accès direct</h3>
+          <span class="tile-arrow" aria-hidden="true">→</span>
+        </div>
+        <p>Ouvrir Roadbook VE sans trace</p>
+      </a>
     </div>
-
-    <!-- Accès direct -->
-    <div class="card">
-      <h2>⚡ Roadbook VE <span class="tag">accès direct</span></h2>
-      <p class="desc">Vous souhaitez simplement ouvrir l'application de suivi de trajet sans passer par une trace ?</p>
-      <a class="btn btn-outline" href="./roadbook.html">Ouvrir Roadbook VE</a>
-    </div>
+    <input type="file" id="fileInput" accept=".gpx,.json,.geojson" onchange="handleFileSelect(event)">
+    <div class="status-line" id="importStatus"></div>
 
     <footer>
-      GeoRouter &amp; Roadbook VE — applications indépendantes, connectées via ce portail.
+      <p>GeoRouter &amp; Roadbook VE — applications indépendantes, connectées via ce portail.</p>
     </footer>
   </div>
 
