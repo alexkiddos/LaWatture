@@ -950,7 +950,15 @@ function processTraceContent(content, filename) {
     gpxLineFuture = L.polyline(allCoords, {color: '#0B72E7', weight: 4, opacity: 1.0}).addTo(map);
     gpxLinePast = L.polyline([], {color: '#16a34a', weight: 4, opacity: 0.5}).addTo(map);
 
-    map.fitBounds(gpxLineFuture.getBounds(), FIT_BOUNDS_OPTIONS);
+    // Décalé d'un tick : au chargement initial (transmission GeoRouter via
+    // localStorage notamment), le conteneur de la carte n'a pas encore fini
+    // son layout au moment où ce code s'exécute (même souci que le cadrage
+    // France au démarrage). L'upload manuel fonctionnait déjà car il survient
+    // toujours après que la page se soit stabilisée.
+    requestAnimationFrame(() => {
+        map.invalidateSize();
+        map.fitBounds(gpxLineFuture.getBounds(), FIT_BOUNDS_OPTIONS);
+    });
 
     fetchAndFilterStations();
 }
