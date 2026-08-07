@@ -1155,6 +1155,7 @@
           document.getElementById(`via-input-${index}`).value = name;
           toggleClearBtn(`via-input-${index}`, `via-clear-${index}`);
           updateMarkers();
+          map.setView(coords, 14);
           if (sheetState === 'high') setSheetState('mid');
         });
       });
@@ -1313,11 +1314,13 @@
     setupAutocomplete(document.getElementById('start-input'), document.getElementById('start-suggestions'), (coords, name) => {
       setPoint('start', coords, name);
       toggleClearBtn('start-input', 'start-clear');
+      map.setView(coords, 14);
     });
 
     setupAutocomplete(document.getElementById('end-input'), document.getElementById('end-suggestions'), (coords, name) => {
       setPoint('end', coords, name);
       toggleClearBtn('end-input', 'end-clear');
+      map.setView(coords, 14);
     });
 
     function formatDuration(totalSeconds) {
