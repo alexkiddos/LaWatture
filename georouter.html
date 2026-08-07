@@ -1402,7 +1402,7 @@
       const peage = calculerCoutPeage(decodedRouteCoords);
       const peageValue = peage.indexIndisponible
         ? 'N/D'
-        : (peage.total > 0.01 ? `${peage.total.toFixed(2)} €` : 'Gratuit');
+        : (peage.total > 0.01 ? `${Math.ceil(peage.total)} €` : 'Gratuit');
 
       statsDiv.innerHTML = `
         <div class="stats-row">
@@ -1459,7 +1459,7 @@
       // Barre résumée compacte : passe du prompt "Où allez-vous ?" au résultat du trajet
       const summaryText = document.getElementById('summaryText');
       summaryText.innerHTML = `${routeSummary.length.toFixed(1)} km · ${formatDuration(routeSummary.time)}` +
-        (peage.total > 0.01 ? ` · <span style="color:var(--accent)">${peage.total.toFixed(2)} €</span>` : '');
+        (peage.total > 0.01 ? ` · <span style="color:var(--accent)">${Math.ceil(peage.total)} €</span>` : '');
 
       // Le résultat prime : on repasse en position milieu (résultats + carte visibles) et on amène les résultats en vue
       if (sheetState === 'low' || sheetState === 'high') setSheetState('mid');
