@@ -26,7 +26,7 @@
       --card-bg: #FAFAFB; --input-bg: #FAFAFB; --input-border: #EBEBEE;
       --options-bg: #FAFAFB; --options-border: #EBEBEE;
       --hover-bg: #E8F1FD;
-      --panel-2: #F0F1F3; --line-strong: #D7D8DE;
+      --panel-2: #E9EAED; --line-strong: #C3C4CB;
       --accent: #0B72E7; --on-accent: #FFFFFF;
     }
     @media (prefers-color-scheme: dark) {
@@ -35,7 +35,7 @@
         --card-bg: #141418; --input-bg: #141418; --input-border: #232329;
         --options-bg: #141418; --options-border: #232329;
         --hover-bg: #1B2A3D;
-        --panel-2: #1B1B20; --line-strong: #34343D;
+        --panel-2: #232329; --line-strong: #4A4A54;
         --accent: #4FA3FF; --on-accent: #0B0B0E;
       }
     }
@@ -87,7 +87,7 @@
       display: flex; align-items: center; justify-content: center;
       height: 34px; flex-shrink: 0; cursor: grab; touch-action: none;
     }
-    .sheet-handle { width: 38px; height: 4px; border-radius: 2px; background: var(--border); }
+    .sheet-handle { width: 38px; height: 4px; border-radius: 2px; background: var(--muted); }
 
     /* Zone tampon invisible juste au-dessus du sheet, déborde dans la carte
        pour élargir la cible de préhension (évite les taps ratés sur la carte). */
@@ -124,7 +124,7 @@
     }
 
     .icon-btn {
-      width: 40px; height: 40px; border-radius: 11px; border: none;
+      width: 40px; height: 40px; border-radius: 11px; border: 1px solid var(--line-strong);
       background: var(--panel-2); color: var(--text); display: inline-flex; align-items: center;
       justify-content: center; cursor: pointer; text-decoration: none; flex-shrink: 0;
       transition: filter 0.15s, color 0.15s;
@@ -133,7 +133,7 @@
     .icon-btn:hover { color: var(--accent); filter: brightness(0.96); }
     .icon-btn:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
     .icon-btn.active { color: var(--accent); background: var(--hover-bg); }
-    .icon-btn-ghost { background: transparent; }
+    .icon-btn-ghost { background: transparent; border-color: transparent; }
     .icon-btn-ghost:hover { background: var(--hover-bg); filter: none; }
     .icon-btn-sm { width: 34px; height: 34px; border-radius: 9px; }
     .icon-btn-sm svg { width: 15px; height: 15px; }
@@ -296,10 +296,10 @@
     }
     .btn-primary { background: var(--accent); color: var(--on-accent); }
     .btn-primary:hover { filter: brightness(1.08); }
-    .btn-secondary { background: var(--panel-2); color: var(--text); border: none; display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+    .btn-secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--line-strong); display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
     .btn-secondary:hover, .btn-secondary:active { color: var(--accent); filter: brightness(0.96); }
     .btn-secondary:disabled { opacity: 0.4; cursor: default; }
-    .btn-outline { background: var(--panel-2); color: var(--text); border: none; }
+    .btn-outline { background: var(--panel-2); color: var(--text); border: 1px solid var(--line-strong); }
     .btn-outline:hover { color: var(--accent); filter: brightness(0.96); }
     .btn-danger { background: #e74c3c; color: white; }
     .btn-danger:hover { background: #c0392b; }
