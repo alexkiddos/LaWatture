@@ -827,7 +827,10 @@
     /* --- SURCOUCHE TRONÇONS PAYANTS (GEOJSON, rendu Canvas) ---
        Rendu en Canvas plutôt que SVG (défaut Leaflet) : nettement plus
        rapide avec plusieurs milliers de tracés (un seul <canvas>, pas un
-       <path> DOM par tronçon). */
+       <path> DOM par tronçon).
+       Chargée À LA DEMANDE uniquement (pas au démarrage) : soit quand
+       l'utilisateur active la couche "Routes payantes" dans le menu calques,
+       soit dès qu'un calcul d'itinéraire a besoin du coût péage. */
     const tollLayer = L.geoJSON(null, {
       pane: 'tollPane',
       renderer: L.canvas({ pane: 'tollPane' }),
@@ -838,23 +841,27 @@
       }
     });
 
-    fetch('./autoroutes_payantes_surcouche.geojson')
-      .then(res => {
-        if (!res.ok) throw new Error("Fichier GeoJSON introuvable");
-        return res.json();
-      })
-      .then(geoData => {
-        tollLayer.clearLayers();
-        tollLayer.addData(geoData);
-        tollLayer.addTo(map);
+    let tollDataLoaded = false;
+    let tollDataLoadingPromise = null;
 
-        tollIndex = buildTollIndex(geoData);
-
-        if (tollLayer.getBounds().isValid()) {
-          map.fitBounds(tollLayer.getBounds(), { padding: [20, 20] });
-        }
-      })
-      .catch(err => console.warn("Surcouche péages non chargée :", err));
+    function ensureTollDataLoaded() {
+      if (tollDataLoadingPromise) return tollDataLoadingPromise;
+      tollDataLoadingPromise = fetch('./autoroutes_payantes_surcouche.geojson')
+        .then(res => {
+          if (!res.ok) throw new Error("Fichier GeoJSON introuvable");
+          return res.json();
+        })
+        .then(geoData => {
+          tollLayer.addData(geoData);
+          tollIndex = buildTollIndex(geoData);
+          tollDataLoaded = true;
+        })
+        .catch(err => {
+          console.warn("Surcouche péages non chargée :", err);
+          tollDataLoadingPromise = null; // permet de retenter plus tard
+        });
+      return tollDataLoadingPromise;
+    }
 
     /* --- CONTRÔLE DES CALQUES & ÉCHELLE --- */
     const baseLayers = { "OpenStreetMap.de": osmDeLayer };
@@ -866,6 +873,17 @@
       position: 'topright', 
       collapsed: true 
     }).addTo(map);
+
+    // Chargement à la demande : dès que l'utilisateur coche "Routes payantes"
+    map.on('overlayadd', (e) => {
+      if (e.layer === tollLayer && !tollDataLoaded) {
+        ensureTollDataLoaded().then(() => {
+          if (tollLayer.getBounds().isValid()) {
+            map.fitBounds(tollLayer.getBounds(), { padding: [20, 20] });
+          }
+        });
+      }
+    });
 
     const layerContainer = layerControl.getContainer();
 
@@ -1314,6 +1332,8 @@
         alert("Veuillez sélectionner au moins un départ et une arrivée.");
         return;
       }
+
+      ensureTollDataLoaded(); // en parallèle : dispo pour le calcul du coût péage même sans afficher la couche
 
       document.getElementById('loading').style.display = 'block';
       document.getElementById('route-summary').style.display = 'none';
