@@ -6,8 +6,8 @@
     <title>IRVE Roadbook Live</title>
     
     <!-- Balises PWA -->
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0B0B0E" media="(prefers-color-scheme: dark)">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link rel="manifest" href="./manifest.json">
@@ -15,74 +15,94 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
     <style>
-      :root { 
-        --bg: #f8fafc; --text: #0f172a; --border: #cbd5e1; --card-bg: #ffffff; --input-bg: #ffffff; --input-border: #94a3b8; --pdc-bg: #f1f5f9; --btn-bg: #e2e8f0; --btn-text: #0f172a; 
-        --op-color: #0284c7; --dispo-ok: #16a34a; --dispo-warn: #d97706; --dispo-alert: #dc2626;
+      :root {
+        --bg: #FFFFFF; --text: #111114; --border: #EBEBEE; --card-bg: #FAFAFB; --input-bg: #FAFAFB; --input-border: #EBEBEE; --pdc-bg: #F3F5F8; --btn-bg: #FAFAFB; --btn-text: #111114;
+        --accent: #0B72E7; --on-accent: #FFFFFF; --op-color: #0B72E7; --dispo-ok: #16a34a; --dispo-warn: #d97706; --dispo-alert: #dc2626;
         --dispo-ok-bg: #dcfce7; --dispo-warn-bg: #fef3c7; --dispo-alert-bg: #fee2e2;
       }
       @media (prefers-color-scheme: dark) {
         :root {
-          --bg: #121212; --text: #e0e0e0; --border: #333333; --card-bg: #18181b; --input-bg: #18181b; --input-border: #3f3f46; --pdc-bg: #09090b; --btn-bg: #1e293b; --btn-text: #ffffff; 
-          --op-color: #38bdf8; --dispo-ok: #4ade80; --dispo-warn: #fbbf24; --dispo-alert: #f87171;
+          --bg: #0B0B0E; --text: #F2F2F5; --border: #232329; --card-bg: #141418; --input-bg: #141418; --input-border: #232329; --pdc-bg: #182130; --btn-bg: #182130; --btn-text: #F2F2F5;
+          --accent: #4FA3FF; --on-accent: #0B0B0E; --op-color: #4FA3FF; --dispo-ok: #4ade80; --dispo-warn: #fbbf24; --dispo-alert: #f87171;
           --dispo-ok-bg: #052e1a; --dispo-warn-bg: #451a03; --dispo-alert-bg: #450a0a;
         }
       }
-      body { font-family: -apple-system, sans-serif; margin: 0; background: var(--bg); color: var(--text); height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
-      
-      #map, #terminal-logs { 
-          position: relative; 
-          height: 45vh; 
-          height: 45dvh; 
-          width: 100%; 
-          border-bottom: 2px solid #cbd5e1; 
-          flex-shrink: 0; 
+      body { font-family: 'Inter', -apple-system, sans-serif; margin: 0; background: var(--bg); color: var(--text); height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+
+      #map, #terminal-logs {
+          position: relative;
+          width: 100%;
+          flex: 0 0 auto;
           box-sizing: border-box;
+          min-height: 40px; /* filet de sécurité avant que le JS ne fixe la hauteur exacte */
       }
 
-      #terminal-logs { 
-          display: none; 
-          background: rgba(15,23,42,0.98); 
-          color: #4ade80; 
-          font-family: monospace; 
-          font-size: 11px; 
-          overflow-y: auto; 
-          -webkit-overflow-scrolling: touch; 
-          padding: 10px; 
-          padding-bottom: 40px; 
-          z-index: 10; 
+      #terminal-logs {
+          display: none;
+          background: rgba(15,23,42,0.98);
+          color: #4ade80;
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 11px;
+          overflow-y: auto;
+          -webkit-overflow-scrolling: touch;
+          padding: 10px;
+          padding-bottom: 40px;
+          z-index: 10;
           user-select: text;
           -webkit-user-select: text;
       }
 
-      .leaflet-control-brouter { background: #fff; border: 2px solid rgba(0,0,0,0.2); background-clip: padding-box; border-radius: 4px; box-shadow: 0 1px 5px rgba(0,0,0,0.4); }
-      .brouter-ctrl-btn { width: 26px; height: 26px; line-height: 26px; display: flex; align-items: center; justify-content: center; text-decoration: none; color: #000; border-bottom: 1px solid #ccc; cursor: pointer; background-color: #fff; position: relative; box-sizing: border-box; }
+      .brouter-ctrl-btn { width: 30px; height: 30px; line-height: 30px; display: flex; align-items: center; justify-content: center; text-decoration: none; color: #444; border-bottom: 1px solid #eee; cursor: pointer; background-color: #fff; position: relative; box-sizing: border-box; }
       .brouter-ctrl-btn:last-child { border-bottom: none; }
       .brouter-ctrl-btn:hover { background-color: #f4f4f4; color: #000; }
-      .brouter-ctrl-btn.active-track { background-color: #16a34a !important; color: #fff !important; }
-      .brouter-ctrl-btn.active-mode { background-color: #0284c7 !important; color: #fff !important; }
-      .brouter-ctrl-btn svg { width: 14px; height: 14px; vertical-align: middle; fill: currentColor; }
+      .brouter-ctrl-btn.active-track { background-color: var(--accent) !important; color: #fff !important; }
+      .brouter-ctrl-btn.active-mode { background-color: var(--accent) !important; color: #fff !important; }
+      .brouter-ctrl-btn svg { width: 15px; height: 15px; vertical-align: middle; fill: currentColor; }
 
-      #main-content { height: 55vh; height: 55dvh; flex: 1; overflow-y: auto; padding: 10px; box-sizing: border-box; }
+      /* --- BOTTOM SHEET : mêmes 3 positions (basse/milieu/haute) que GeoRouter --- */
+      .sheet {
+        position: relative; width: 100%; flex: 0 0 auto; z-index: 20;
+        background: var(--card-bg); color: var(--text);
+        box-shadow: 0 -4px 16px rgba(0,0,0,0.10);
+        display: flex; flex-direction: column; overflow: hidden;
+        transition: height 0.28s cubic-bezier(.4,0,.2,1);
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+      .sheet.dragging { transition: none; }
+
+      .sheet-handle-zone { display: flex; align-items: center; justify-content: center; height: 34px; flex-shrink: 0; cursor: grab; touch-action: none; }
+      .sheet-handle { width: 38px; height: 4px; border-radius: 2px; background: var(--border); }
+
+      .sheet-drag-buffer {
+        position: fixed; left: 0; right: 0; height: 22px; z-index: 19;
+        cursor: grab; touch-action: none;
+        background: linear-gradient(to bottom, transparent, rgba(0,0,0,0.03));
+      }
+
+      .sheet-pinned { flex-shrink: 0; padding: 0 12px; }
+      .sheet-body { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 0 12px 16px; }
+
       .header-controls { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 10px; font-size: 13px; }
-      .refresh-btn { background: var(--btn-bg); color: var(--btn-text); border: 1px solid var(--border); padding: 5px 9px; border-radius: 6px; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+      .header-trailing-group { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+      .refresh-btn { background: var(--btn-bg); color: var(--btn-text); border: 1px solid var(--border); padding: 5px 9px; border-radius: 10px; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; height: 34px; width: 34px; box-sizing: border-box; }
+      .refresh-btn.tool-active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 
-      .input-field { background: var(--input-bg); color: var(--text); border: 1px solid var(--input-border); padding: 5px; width: 48px; border-radius: 6px; font-weight: bold; text-align: center; font-size: 13px; }
+      .input-field { background: var(--input-bg); color: var(--text); border: 1px solid var(--input-border); padding: 5px; width: 52px; height: 34px; box-sizing: border-box; border-radius: 10px; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-align: center; font-size: 13px; }
       
       .multi-select-container { position: relative; display: inline-block; font-size: 12px; }
-      .multi-select-header { background: var(--input-bg); color: var(--text); border: 1px solid var(--input-border); padding: 5px 8px; border-radius: 6px; cursor: pointer; font-weight: 500; white-space: nowrap; user-select: none; }
-      .multi-select-dropdown { display: none; position: absolute; top: 100%; left: 0; z-index: 100; background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-height: 180px; overflow-y: auto; width: 220px; padding: 6px; margin-top: 2px; }
+      .multi-select-header { background: var(--input-bg); color: var(--text); border: 1px solid var(--input-border); padding: 5px 10px; border-radius: 999px; cursor: pointer; font-weight: 500; white-space: nowrap; user-select: none; height: 34px; box-sizing: border-box; display: inline-flex; align-items: center; }
+      .multi-select-dropdown { display: none; position: fixed; z-index: 200; background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-height: 180px; overflow-y: auto; width: 220px; padding: 6px; }
       .multi-select-dropdown.show { display: block; }
-      .multi-select-item { display: flex; align-items: center; gap: 6px; padding: 3px 0; cursor: pointer; font-size: 11px; }
+      .multi-select-item { display: flex; align-items: center; gap: 6px; padding: 4px 2px; cursor: pointer; font-size: 11px; }
+      .multi-select-item input { accent-color: var(--accent); }
 
-      .station-card { display: flex; flex-direction: column; border-bottom: 1px solid var(--border); padding: 12px 6px; cursor: pointer; background: var(--card-bg); border-radius: 6px; margin-bottom: 4px;}
+      .station-card { display: flex; flex-direction: column; border: 1px solid var(--border); padding: 12px; cursor: pointer; background: var(--card-bg); border-radius: 12px; margin-bottom: 8px; }
       .station-main { display: flex; align-items: center; width: 100%; }
       .nav-block { width: 75px; min-width: 75px; border-right: 1px solid var(--border); margin-right: 12px; }
       .nav-block.nav-block-maneuver { display: flex; flex-direction: column; align-items: center; justify-content: center; }
-      .borne-container { display: flex; flex-direction: column; width: 14px; height: 18px; flex-shrink: 0; }
-      .chapeau-rouge { height: 6px; background-color: #ef4444; border-top-left-radius: 6px; border-top-right-radius: 6px; }
-      .base-blanche { flex: 1; background-color: #ffffff; border: 1px solid #9ca3af; border-top: none; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: 900; color: #1f2937; }
-      .pk-line { font-size: 16px; font-weight: 800; display: flex; align-items: center; gap: 4px; }
       .maneuver-icon { width: 30px; height: 30px; margin: 0 auto 2px; display: flex; align-items: center; justify-content: center; }
       .maneuver-icon img { width: 100%; height: 100%; object-fit: contain; }
       .maneuver-icon .icon-dark-theme { display: none; }
@@ -90,12 +110,13 @@
         .maneuver-icon .icon-light-theme { display: none; }
         .maneuver-icon .icon-dark-theme { display: block; }
       }
+      .pk-val { font-family: 'Space Grotesk', sans-serif; font-weight: 700; }
       .pk-val-wrap { display: flex; align-items: baseline; justify-content: center; gap: 2px; }
       .pk-unit { font-size: 10px; font-weight: 600; opacity: 0.6; }
-      .detour-line { font-size: 11px; opacity: 0.7; margin-left: 18px; margin-top: 2px; }
+      .detour-line { display: flex; align-items: center; justify-content: center; gap: 3px; font-size: 12px; font-weight: 600; opacity: 0.75; margin-top: 3px; white-space: nowrap; }
       .info-block { flex: 1; min-width: 0; }
-      .op-title { font-weight: 800; font-size: 15px; word-break: break-word; color: var(--op-color); }
-      .st-name { font-size: 13px; opacity: 0.9; margin-top: 2px; word-break: break-word; }
+      .op-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 15px; word-break: break-word; color: var(--op-color); }
+      .st-name { font-size: 13px; opacity: 0.9; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .st-commune { font-size: 11px; opacity: 0.75; font-weight: 600; margin-top: 1px; word-break: break-word; }
       
       .tech-block { width: auto; min-width: 55px; text-align: right; border-left: 1px solid var(--border); padding-left: 8px; flex-shrink: 0; }
@@ -103,7 +124,7 @@
       .dispo-ok { color: var(--dispo-ok); } .dispo-warn { color: var(--dispo-warn); } .dispo-alert { color: var(--dispo-alert); }
 
       /* --- Prochaine instruction de conduite : mise en avant + code couleur par urgence --- */
-      .roadbook-next { border: 2px solid var(--border); padding: 18px 12px; margin-bottom: 10px; }
+      .roadbook-next { border: 2px solid var(--border); border-radius: 12px; padding: 18px 12px; margin-bottom: 10px; }
       .roadbook-next .maneuver-icon { width: 42px; height: 42px; }
       .roadbook-next .pk-val { font-size: 26px; }
       .roadbook-next .pk-unit { font-size: 12px; }
@@ -119,10 +140,10 @@
         50% { box-shadow: 0 0 0 7px rgba(220,38,38,0); }
       }
       .roadbook-later { opacity: 0.8; }
-      .pdc-panel { display: none; margin-top: 10px; font-size: 12px; background: var(--pdc-bg); padding: 10px; border-radius: 6px; }
+      .pdc-panel { display: none; margin-top: 10px; font-size: 12px; background: var(--pdc-bg); padding: 10px; border-radius: 10px; }
       .pdc-panel.show { display: block; }
       .pdc-table { width: 100%; border-collapse: collapse; text-align: left; table-layout: fixed; }
-      .pdc-table td, .pdc-table th { padding: 4px; border-bottom: 1px solid var(--border); font-family: monospace; font-size: 11px; }
+      .pdc-table td, .pdc-table th { padding: 4px; border-bottom: 1px solid var(--border); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
       
       .pdc-table th:nth-child(1), .pdc-table td:nth-child(1) { width: 28%; word-break: break-all; overflow-wrap: break-word; }
       .pdc-table th:nth-child(2), .pdc-table td:nth-child(2) { width: 28%; }
@@ -130,7 +151,7 @@
       .pdc-table th:nth-child(4), .pdc-table td:nth-child(4) { width: 22%; }
       
       .log-err { color: #f87171; }
-      .close-log-btn { position: sticky; top: 0; float: right; background: #ef4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-weight: bold; cursor: pointer; z-index: 20; }
+      .close-log-btn { position: sticky; top: 0; float: right; background: #ef4444; color: white; border: none; padding: 4px 8px; border-radius: 8px; font-weight: bold; cursor: pointer; z-index: 20; }
       
       .user-loc-icon { background: transparent !important; border: none !important; }
       .user-loc-arrow { width: 28px; height: 28px; transition: transform 0.3s ease-out; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.4)); }
@@ -143,32 +164,152 @@
   </div>
 
   <div id="map"></div>
-  
-  <div id="main-content">
-    <div class="header-controls">
-      <input type='number' id='kmInput' class='input-field' value="0.0" step="0.1" oninput='onKmInputChange()' max="9999">
-      <button id="btnToggleMode" class="refresh-btn" onclick="toggleViewMode()" title="Changer de vue (Stations / Feuille de route)">⚡</button>
+  <div class="sheet-drag-buffer" id="sheetDragBuffer" aria-hidden="true"></div>
 
-      <div id="operatorSelectContainer" class="multi-select-container">
-          <div class="multi-select-header" onclick="toggleOpDropdown(event)">Opérateurs (Tous) ▼</div>
-          <div id="opDropdownContent" class="multi-select-dropdown">
-              <div class="multi-select-item" onclick="toggleSelectAllOps(true)"><b>[ Tout sélectionner ]</b></div>
-              <div class="multi-select-item" onclick="toggleSelectAllOps(false)"><b>[ Tout désélectionner ]</b></div>
-              <hr style="border:0; border-top:1px solid var(--border); margin:4px 0;">
-              <div id="opCheckboxesList"></div>
-          </div>
-      </div>
-
-      <input type="file" id="gpxInput" accept=".gpx,.json,.geojson" style="display:none;" onchange="handleTraceUpload(event)">
-      <button class="refresh-btn" style="margin-left:auto;" onclick="document.getElementById('gpxInput').click()" title="Charger Trace (GPX/JSON Valhalla)">📁</button>
-      <button class='refresh-btn' onclick="fetchLiveQualicharge()" title="Rafraîchir Live">🔄</button>
+  <div class="sheet" id="sheet">
+    <div class="sheet-handle-zone" id="sheetHandle">
+      <span class="sheet-handle" aria-hidden="true"></span>
     </div>
-    <div id="stationsContainer">
-        <div style="text-align:center; opacity:0.6; padding: 20px;">Veuillez charger un fichier GPX ou JSON Valhalla pour commencer.<br><br>💡 (Bouton 📁 ou via Partage Android)</div>
+
+    <div class="sheet-pinned" id="sheetPinned">
+      <div class="header-controls">
+        <input type='number' id='kmInput' class='input-field' value="0.0" step="0.1" oninput='onKmInputChange()' max="9999">
+        <button id="btnToggleMode" class="refresh-btn" onclick="toggleViewMode()" title="Passer à la feuille de route">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg>
+        </button>
+
+        <div id="operatorSelectContainer" class="multi-select-container">
+            <div class="multi-select-header" onclick="toggleOpDropdown(event)">Opérateurs (Tous) ▼</div>
+            <div id="opDropdownContent" class="multi-select-dropdown">
+                <div class="multi-select-item" onclick="toggleSelectAllOps(true)"><b>[ Tout sélectionner ]</b></div>
+                <div class="multi-select-item" onclick="toggleSelectAllOps(false)"><b>[ Tout désélectionner ]</b></div>
+                <hr style="border:0; border-top:1px solid var(--border); margin:4px 0;">
+                <div id="opCheckboxesList"></div>
+            </div>
+        </div>
+
+        <input type="file" id="gpxInput" accept=".gpx,.json,.geojson" style="display:none;" onchange="handleTraceUpload(event)">
+
+        <div class="header-trailing-group" style="margin-left:auto;">
+          <button id="importBtnInline" class="refresh-btn" style="display:none;" onclick="handleInlineImportClick()" title="Charger Trace (GPX/JSON Valhalla)">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+          </button>
+          <button id="logBtnInline" class="refresh-btn" style="display:none;" onclick="handleInlineLogClick()" title="Logs">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3h6l5 5v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4z"/><path d="M9 12h6M9 16h6M9 8h2"/></svg>
+          </button>
+          <button id="toolsToggleBtn" class="refresh-btn" onclick="toggleToolsPanel(event)" title="Outils">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          </button>
+          <a class="refresh-btn" href="./index.html" title="Retour à l'accueil" style="text-decoration:none;">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h4v-6h2v6h4a1 1 0 0 0 1-1v-9"/></svg>
+          </a>
+          <button class='refresh-btn' onclick="fetchLiveQualicharge()" title="Rafraîchir Live">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12a9 9 0 1 1 3 6.7"/><path d="M3 21v-5h5"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sheet-body" id="sheetBody">
+      <div id="stationsContainer">
+          <div style="text-align:center; opacity:0.6; padding: 20px;">Veuillez charger un fichier GPX ou JSON Valhalla pour commencer.<br><br>💡 (Bouton 📁 ou via Partage Android)</div>
+      </div>
     </div>
   </div>
 
 <script>
+/* ===================== BOTTOM SHEET (basse / milieu / haute) ===================== */
+const sheet = document.getElementById('sheet');
+const mapEl = document.getElementById('map');
+const logsEl = document.getElementById('terminal-logs');
+const sheetHandleZone = document.getElementById('sheetHandle');
+const sheetDragBuffer = document.getElementById('sheetDragBuffer');
+const sheetPinned = document.getElementById('sheetPinned');
+let sheetState = 'mid';
+let mapReady = false; // la carte Leaflet n'existe pas encore à ce stade du script
+
+// "basse" = exactement la hauteur du contenu épinglé (poignée + entêtes de contrôle).
+function pinnedContentHeight() {
+  const firstCard = document.querySelector('#stationsContainer > *:first-child');
+  const firstCardHeight = firstCard ? firstCard.offsetHeight : 0;
+  return sheetHandleZone.offsetHeight + sheetPinned.offsetHeight + firstCardHeight + 6;
+}
+
+function sheetHeightsPx() {
+  const vh = window.innerHeight;
+  return {
+    low: pinnedContentHeight(),
+    mid: Math.round(vh * 0.52),
+    high: Math.max(vh - 4, 0) // la carte (ou les logs) est quasi entièrement masquée
+  };
+}
+
+// Le sheet ET la zone haute (carte OU logs, selon le mode actif) se complètent
+// toujours exactement : quand le sheet grandit, l'autre rétrécit d'autant.
+function applySheetHeight(px) {
+  const vh = window.innerHeight;
+  const topHeight = Math.max(vh - px, 0);
+  sheet.style.height = px + 'px';
+  mapEl.style.height = topHeight + 'px';
+  logsEl.style.height = topHeight + 'px';
+  sheetDragBuffer.style.bottom = px + 'px';
+  if (mapReady) map.invalidateSize({ pan: false });
+}
+
+function setSheetState(state) {
+  sheetState = state;
+  applySheetHeight(sheetHeightsPx()[state]);
+  sheet.dataset.state = state;
+}
+
+let sheetDrag = null;
+let ignoreNextListClick = false;
+document.getElementById('stationsContainer').addEventListener('click', (e) => {
+  if (ignoreNextListClick) {
+    ignoreNextListClick = false;
+    e.stopPropagation();
+    e.preventDefault();
+  }
+}, true); // capture : intercepte avant les onclick des cartes
+
+function startSheetDrag(e) {
+  e.preventDefault();
+  ignoreNextListClick = true;
+  setTimeout(() => { ignoreNextListClick = false; }, 400); // sécurité si aucun clic ne suit
+  sheetDrag = { startY: e.clientY, startHeight: sheet.getBoundingClientRect().height, moved: 0 };
+  sheet.classList.add('dragging');
+  e.currentTarget.setPointerCapture(e.pointerId);
+}
+sheetHandleZone.addEventListener('pointerdown', startSheetDrag);
+sheetDragBuffer.addEventListener('pointerdown', startSheetDrag);
+
+document.addEventListener('pointermove', (e) => {
+  if (!sheetDrag) return;
+  const dy = e.clientY - sheetDrag.startY;
+  sheetDrag.moved = Math.max(sheetDrag.moved, Math.abs(dy));
+  const h = sheetHeightsPx();
+  const newHeight = Math.min(Math.max(sheetDrag.startHeight - dy, h.low), h.high);
+  applySheetHeight(newHeight);
+});
+
+document.addEventListener('pointerup', () => {
+  if (!sheetDrag) return;
+  sheet.classList.remove('dragging');
+  if (sheetDrag.moved < 6) {
+    // Tap sur la poignée : fait défiler basse -> milieu -> haute -> basse
+    const order = ['low', 'mid', 'high'];
+    setSheetState(order[(order.indexOf(sheetState) + 1) % order.length]);
+  } else {
+    const currentHeight = sheet.getBoundingClientRect().height;
+    const h = sheetHeightsPx();
+    const nearest = Object.entries(h).sort((a, b) => Math.abs(a[1] - currentHeight) - Math.abs(b[1] - currentHeight))[0][0];
+    setSheetState(nearest);
+  }
+  sheetDrag = null;
+});
+
+window.addEventListener('resize', () => setSheetState(sheetState));
+
 let map, gpxLineFuture, gpxLinePast, userMarker, watchId = null, isAutoTrack = false, isSimulating = false, simInterval = null;
 let navDisplayMode = 'CLOSE';
 let gpxPoints = [], globalData = [], roadbookManeuvers = [], markers = {};
@@ -183,18 +324,58 @@ const INITIAL_LNG = 1.888334;
 const INITIAL_ZOOM = 5;
 const NAV_CLOSE_ZOOM = 11;
 const NAV_MAX_OVERVIEW_ZOOM = 16;
+const franceBounds = L.latLngBounds([41.3, -5.2], [51.1, 9.6]);
 
 function toggleViewMode() {
     const btn = document.getElementById('btnToggleMode');
+    const ICON_BOLT = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg>';
+    const ICON_ROUTE = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 2 4.5 20.29 12 17l7.5 3.29L12 2Z"/></svg>';
     if (currentViewMode === 'STATIONS') {
         currentViewMode = 'ROADBOOK';
-        btn.innerText = '🗺️';
+        btn.innerHTML = ICON_ROUTE;
+        btn.title = "Revenir aux stations de recharge";
     } else {
         currentViewMode = 'STATIONS';
-        btn.innerText = '⚡';
+        btn.innerHTML = ICON_BOLT;
+        btn.title = "Passer à la feuille de route";
     }
-    document.getElementById('operatorSelectContainer').style.display = (currentViewMode === 'STATIONS') ? 'inline-block' : 'none';
+    updateOperatorVisibility();
     renderList();
+}
+
+/* --- Bouton "stack" : bascule Opérateurs <-> Import/Log --- */
+let toolsExpanded = false;
+
+function updateOperatorVisibility() {
+    const show = (currentViewMode === 'STATIONS') && !toolsExpanded;
+    document.getElementById('operatorSelectContainer').style.display = show ? 'inline-block' : 'none';
+}
+
+function collapseToolsPanel() {
+    toolsExpanded = false;
+    document.getElementById('importBtnInline').style.display = 'none';
+    document.getElementById('logBtnInline').style.display = 'none';
+    document.getElementById('toolsToggleBtn').classList.remove('tool-active');
+    updateOperatorVisibility();
+}
+
+function toggleToolsPanel(e) {
+    e.stopPropagation();
+    toolsExpanded = !toolsExpanded;
+    document.getElementById('importBtnInline').style.display = toolsExpanded ? 'inline-flex' : 'none';
+    document.getElementById('logBtnInline').style.display = toolsExpanded ? 'inline-flex' : 'none';
+    document.getElementById('toolsToggleBtn').classList.toggle('tool-active', toolsExpanded);
+    updateOperatorVisibility();
+}
+
+function handleInlineImportClick() {
+    document.getElementById('gpxInput').click();
+    collapseToolsPanel();
+}
+
+function handleInlineLogClick() {
+    toggleLogs();
+    collapseToolsPanel();
 }
 
 function decodeValhallaPolyline(str, precision = 6) {
@@ -427,8 +608,17 @@ function toggleLogs() {
 }
 
 function initMap() {
-    map = L.map('map', {zoomControl: true}).setView([INITIAL_LAT, INITIAL_LNG], INITIAL_ZOOM);
-    
+    map = L.map('map', {zoomControl: true});
+    mapReady = true;
+    setSheetState('mid'); // dimensionne carte/logs + sheet maintenant que Leaflet existe
+
+    // Le recadrage doit attendre que le conteneur ait fini son layout (même
+    // logique que le bouton recadrage, qui lui fonctionne car exécuté après coup)
+    requestAnimationFrame(() => {
+        map.invalidateSize();
+        map.fitBounds(franceBounds, { padding: [10, 10] });
+    });
+
     L.tileLayer('https://{s}.tile.openstreetmap.de/tiles/osmde/{z}/{x}/{y}.png', { 
       minZoom: 4,
       maxZoom: 19
@@ -470,33 +660,13 @@ function initMap() {
     });
     map.addControl(new CustomActionControls());
 
-    const TopRightControls = L.Control.extend({
-        options: { position: 'topright' },
-        onAdd: function() {
-            let container = L.DomUtil.create('div', 'leaflet-control-zoom leaflet-bar leaflet-control');
-
-            let home = L.DomUtil.create('a', 'brouter-ctrl-btn', container);
-            home.href = './index.html';
-            home.title = "Retour à l'accueil";
-            home.innerHTML = '🏠';
-
-            let logs = L.DomUtil.create('a', 'brouter-ctrl-btn', container);
-            logs.href = '#';
-            logs.title = "Logs";
-            logs.innerHTML = '📝';
-            logs.onclick = (e) => { e.preventDefault(); e.stopPropagation(); toggleLogs(); };
-
-            L.DomEvent.disableClickPropagation(container);
-            return container;
-        }
-    });
-    map.addControl(new TopRightControls());
-
     document.addEventListener('click', (e) => {
-        const container = document.querySelector('.multi-select-container');
-        if (container && !container.contains(e.target)) {
-            document.getElementById('opDropdownContent').classList.remove('show');
-        }
+        document.querySelectorAll('.multi-select-container').forEach(container => {
+            if (!container.contains(e.target)) {
+                const dropdown = container.querySelector('.multi-select-dropdown');
+                if (dropdown) dropdown.classList.remove('show');
+            }
+        });
     });
 
     log("INIT", "Carte Leaflet initialisée.");
@@ -505,7 +675,14 @@ function initMap() {
 
 function toggleOpDropdown(e) {
     e.stopPropagation();
-    document.getElementById('opDropdownContent').classList.toggle('show');
+    const dropdown = document.getElementById('opDropdownContent');
+    const willShow = !dropdown.classList.contains('show');
+    if (willShow) {
+        const rect = e.currentTarget.getBoundingClientRect();
+        dropdown.style.top = (rect.bottom + 4) + 'px';
+        dropdown.style.left = Math.min(rect.left, window.innerWidth - 230) + 'px';
+    }
+    dropdown.classList.toggle('show');
 }
 
 function handleButton1Click() {
@@ -548,8 +725,8 @@ function fitTraceBounds() {
         map.fitBounds(bounds, FIT_BOUNDS_OPTIONS);
         log("MAP", "Recadrage sur la trace.");
     } else {
-        map.setView([INITIAL_LAT, INITIAL_LNG], INITIAL_ZOOM);
-        log("MAP", "Carte vide : Réinitialisation sur la vue initiale.");
+        map.fitBounds(franceBounds, { padding: [10, 10] });
+        log("MAP", "Carte vide : Recadrage sur la France.");
     }
 }
 
@@ -693,7 +870,7 @@ function updatePosition(lat, lng, heading) {
     }
     
     let h = heading || 0;
-    let svg = `<div style="width:32px;height:32px;"><svg class="user-loc-arrow" style="transform: rotate(${h}deg);" viewBox="0 0 24 24"><path fill="#0284c7" stroke="#ffffff" stroke-width="2" d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg></div>`;
+    let svg = `<div style="width:32px;height:32px;"><svg class="user-loc-arrow" style="transform: rotate(${h}deg);" viewBox="0 0 24 24"><path fill="#0B72E7" stroke="#ffffff" stroke-width="2" d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg></div>`;
     
     if(userMarker) {
         userMarker.setLatLng([lat, lng]);
@@ -770,7 +947,7 @@ function processTraceContent(content, filename) {
 
     const allCoords = gpxPoints.map(p => [p.lat, p.lon]);
 
-    gpxLineFuture = L.polyline(allCoords, {color: '#0284c7', weight: 4, opacity: 1.0}).addTo(map);
+    gpxLineFuture = L.polyline(allCoords, {color: '#0B72E7', weight: 4, opacity: 1.0}).addTo(map);
     gpxLinePast = L.polyline([], {color: '#16a34a', weight: 4, opacity: 0.5}).addTo(map);
 
     map.fitBounds(gpxLineFuture.getBounds(), FIT_BOUNDS_OPTIONS);
@@ -1188,6 +1365,10 @@ function renderList() {
     } else {
         renderStationsList(kmFilter);
     }
+
+    // La position basse dévoile la prochaine carte (station ou instruction) :
+    // si son contenu vient de changer de hauteur, on réajuste tout de suite.
+    if (sheetState === 'low') setSheetState('low');
 }
 
 function renderRoadbookList(kmFilter) {
@@ -1260,7 +1441,7 @@ function renderStationsList(kmFilter) {
         m.bindPopup(`
           <b>${s.op}</b><br>${s.nom}<br>
           <div style="margin-top:6px; font-size:11px;">
-            📍 <a href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" style="color: #0284c7; text-decoration: underline; font-weight: bold;">
+            📍 <a href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" style="color: #0B72E7; text-decoration: underline; font-weight: bold;">
               ${coordsStr} ↗
             </a>
           </div>
@@ -1274,11 +1455,11 @@ function renderStationsList(kmFilter) {
         <div class='station-card' onclick="map.setView([${s.lat}, ${s.lng}], 14); markers[${i}].openPopup();">
           <div class='station-main'>
             <div class='nav-block'>
-              <div class='pk-line'>
-                <div class='borne-container'><div class='chapeau-rouge'></div><div class='base-blanche'>km</div></div>
-                <span class='pk-val'>${(s.km - kmFilter).toFixed(1)}</span>
+              <div class='pk-val-wrap'><span class='pk-val'>${(s.km - kmFilter).toFixed(1)}</span><span class='pk-unit'>km</span></div>
+              <div class='detour-line'>
+                <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v9a4 4 0 0 0 4 4h6"/><path d="M13 12l4 4-4 4"/></svg>
+                ${s.detour.toFixed(2)} km
               </div>
-              <div class='detour-line'>↳<i>${s.detour.toFixed(2)}</i></div>
             </div>
             <div class='info-block'>
               <div class='op-title'>${s.op}</div>

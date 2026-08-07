@@ -2,9 +2,11 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content" />
+  <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0B0B0E" media="(prefers-color-scheme: dark)" />
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="manifest" href="./manifest.json">
   <title>GeoRouter - Valhalla (Stadia Maps)</title>
 
   <!-- Leaflet CSS & JS -->
@@ -14,24 +16,30 @@
   <!-- Turf.js pour le matching géométrique tracé <-> tronçons payants (calcul du péage) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
 
+  <!-- Polices de l'interface (zone basse uniquement — la carte garde ses styles Leaflet natifs) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
   <style>
     :root {
-      --bg: #f8fafc; --text: #2c3e50; --muted: #999; --border: #e0e0e0;
-      --card-bg: #ffffff; --input-bg: #ffffff; --input-border: #ccc;
-      --options-bg: #f8f9fa; --options-border: #e9ecef;
-      --hover-bg: #e8f4fc;
+      --bg: #FFFFFF; --text: #111114; --muted: #6B6B72; --border: #EBEBEE;
+      --card-bg: #FAFAFB; --input-bg: #FAFAFB; --input-border: #EBEBEE;
+      --options-bg: #FAFAFB; --options-border: #EBEBEE;
+      --hover-bg: #E8F1FD;
+      --accent: #0B72E7; --on-accent: #FFFFFF;
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #121212; --text: #e5e7eb; --muted: #9ca3af; --border: #333333;
-        --card-bg: #18181b; --input-bg: #18181b; --input-border: #3f3f46;
-        --options-bg: #1e293b; --options-border: #334155;
-        --hover-bg: #1e3a4f;
+        --bg: #0B0B0E; --text: #F2F2F5; --muted: #8B8B93; --border: #232329;
+        --card-bg: #141418; --input-bg: #141418; --input-border: #232329;
+        --options-bg: #141418; --options-border: #232329;
+        --hover-bg: #1B2A3D;
+        --accent: #4FA3FF; --on-accent: #0B0B0E;
       }
     }
 
     * { box-sizing: border-box; }
-    
+
     body, html {
       margin: 0;
       padding: 0;
@@ -39,38 +47,110 @@
       width: 100%;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: var(--bg);
-      display: flex;
-      flex-direction: column;
       overflow: hidden;
       overscroll-behavior: none;
       touch-action: pan-x pan-y;
     }
-    
-    #map {
-      height: 50vh;
-      height: 50svh;
-      width: 100%;
-      z-index: 1;
-      position: relative;
-    }
-
-    .panel {
-      height: 50vh;
-      height: 50svh;
-      width: 100%;
-      z-index: 2;
-      background: var(--card-bg);
-      color: var(--text);
-      padding: 12px;
-      box-shadow: 0 -4px 15px rgba(0, 0, 0, 0.1);
+    body {
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      overflow-y: auto;
-      -webkit-overflow-scrolling: touch;
     }
 
-    h2 { margin: 0 0 2px 0; font-size: 1.05rem; color: var(--text); }
+    #map {
+      position: relative;
+      width: 100%;
+      flex: 0 0 auto;
+      z-index: 1;
+      min-height: 40px; /* filet de sécurité avant que le JS ne fixe la hauteur exacte */
+    }
+
+    /* --- BOTTOM SHEET : 3 hauteurs (peek / half / full), glissable --- */
+    /* Occupe le reste de l'écran sous la carte (pas de superposition) */
+    .sheet {
+      position: relative; width: 100%; flex: 0 0 auto; z-index: 20;
+      background: var(--card-bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      border-radius: 0;
+      box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.10);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: height 0.28s cubic-bezier(.4,0,.2,1);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .sheet.dragging { transition: none; }
+
+    .sheet-handle-zone {
+      display: flex; align-items: center; justify-content: center;
+      height: 34px; flex-shrink: 0; cursor: grab; touch-action: none;
+    }
+    .sheet-handle { width: 38px; height: 4px; border-radius: 2px; background: var(--border); }
+
+    /* Zone tampon invisible juste au-dessus du sheet, déborde dans la carte
+       pour élargir la cible de préhension (évite les taps ratés sur la carte). */
+    .sheet-drag-buffer {
+      position: fixed; left: 0; right: 0; height: 22px; z-index: 19;
+      cursor: grab; touch-action: none;
+      background: linear-gradient(to bottom, transparent, rgba(0,0,0,0.03));
+    }
+
+    .sheet-summary {
+      display: flex; align-items: center; gap: 10px; padding: 0 16px 12px; flex-shrink: 0; cursor: pointer;
+    }
+    .summary-text {
+      flex: 1; font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 0.98rem;
+      color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .summary-text .muted { color: var(--muted); font-weight: 500; }
+    .summary-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+    .sheet-pinned { flex-shrink: 0; padding: 0 16px 12px; }
+
+    .sheet-body {
+      flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain; padding: 0 16px 20px; display: flex; flex-direction: column; gap: 8px;
+    }
+
+    .settings-panel { padding: 2px 0 4px; }
+    .settings-panel[hidden] { display: none; }
+
+
+    h2 {
+      margin: 0 0 2px 0; font-size: 1.1rem; color: var(--text);
+      font-family: 'Space Grotesk', sans-serif; font-weight: 700; letter-spacing: -0.01em;
+    }
+
+    .icon-btn {
+      width: 40px; height: 40px; border-radius: 11px; border: 1px solid var(--input-border);
+      background: var(--card-bg); color: var(--text); display: inline-flex; align-items: center;
+      justify-content: center; cursor: pointer; text-decoration: none; flex-shrink: 0;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .icon-btn svg { width: 17px; height: 17px; }
+    .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .icon-btn:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
+    .icon-btn.active { border-color: var(--accent); color: var(--accent); background: var(--hover-bg); }
+    .icon-btn-ghost { background: transparent; border-color: transparent; }
+    .icon-btn-ghost:hover { background: var(--hover-bg); border-color: transparent; }
+    .icon-btn-sm { width: 34px; height: 34px; border-radius: 9px; }
+    .icon-btn-sm svg { width: 15px; height: 15px; }
+
+    /* --- carte de trajet : pastilles départ/arrivée façon appli de nav --- */
+    .route-card { display: flex; flex-direction: column; gap: 6px; }
+    .route-row { display: flex; align-items: flex-start; gap: 8px; }
+    .route-dot {
+      width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; margin-top: 14px;
+      border: 2px solid var(--accent); background: var(--card-bg);
+    }
+    .route-dot-end { background: var(--accent); border-color: var(--accent); }
+    .route-dot-via {
+      width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0; margin-top: 9px;
+      background: var(--options-bg); border: 1px solid var(--options-border); color: var(--muted);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.62rem; font-weight: 700; font-family: 'Space Grotesk', sans-serif;
+    }
+    .route-row > .input-group { flex: 1; min-width: 0; }
     
     .input-group { position: relative; display: flex; flex-direction: column; gap: 4px; }
     .input-row { display: flex; gap: 6px; align-items: center; }
@@ -84,9 +164,9 @@
 
     input[type="text"], select {
       width: 100%;
-      padding: 8px 10px;
+      padding: 9px 11px;
       border: 1px solid var(--input-border);
-      border-radius: 6px;
+      border-radius: 10px;
       font-size: 0.9rem;
       background-color: var(--input-bg);
       color: var(--text);
@@ -125,64 +205,63 @@
     }
     .btn-remove-step:active { background-color: #e53935; color: white; }
 
-    .options-row {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      background: var(--options-bg);
-      padding: 6px 10px;
-      border-radius: 6px;
-      border: 1px solid var(--options-border);
-      justify-content: space-between;
+    /* --- segmented control : moteur de recherche / vitesse max --- */
+    .segmented {
+      display: flex; gap: 3px; background: var(--options-bg); border: 1px solid var(--options-border);
+      border-radius: 10px; padding: 3px;
     }
+    .segmented-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .segmented-btn {
+      flex: 1; border: none; background: transparent; color: var(--muted);
+      font-family: 'Inter', sans-serif; font-weight: 600; font-size: 0.78rem;
+      padding: 7px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap;
+      transition: background 0.15s, color 0.15s;
+    }
+    .segmented-btn.active { background: var(--card-bg); color: var(--accent); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
 
-    .option-item {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      font-size: 0.8rem;
-      color: var(--text);
+    /* --- ligne d'option avec interrupteur (façon "options d'itinéraire" des apps de nav) --- */
+    .option-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 9px 2px; cursor: pointer; user-select: none;
     }
+    .option-row-label { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text); font-weight: 500; }
+    .option-row-label svg { width: 17px; height: 17px; color: var(--muted); flex-shrink: 0; }
 
-    .btn-toggle-api {
-      background: var(--options-bg);
-      border: 1px solid var(--options-border);
-      padding: 3px 8px;
-      border-radius: 4px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      color: var(--text);
-      cursor: pointer;
-      user-select: none;
-      transition: all 0.2s;
+    .switch { position: relative; display: inline-block; width: 40px; height: 24px; flex-shrink: 0; }
+    .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+    .switch-track {
+      position: absolute; inset: 0; background: var(--border); border-radius: 999px; transition: background 0.15s;
     }
-    .btn-toggle-api:active {
-      background: var(--hover-bg);
+    .switch-thumb {
+      position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%;
+      background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.25); transition: transform 0.15s;
     }
+    .switch input:checked ~ .switch-track { background: var(--accent); }
+    .switch input:checked ~ .switch-track .switch-thumb { transform: translateX(16px); }
+    .switch input:focus-visible ~ .switch-track { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-    .checkbox-label {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      cursor: pointer;
-      font-weight: 500;
-      white-space: nowrap;
+    /* --- réordonnancement des étapes par glisser-déposer --- */
+    .drag-handle {
+      width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+      color: var(--muted); cursor: grab; touch-action: none; flex-shrink: 0; border-radius: 9px;
+      margin-top: 3px;
     }
+    .drag-handle:hover, .drag-handle:active { color: var(--accent); background: var(--hover-bg); }
+    .drag-handle svg { width: 16px; height: 16px; pointer-events: none; }
+    .route-row.dragging { opacity: 0.5; }
+    .route-row.drag-over { box-shadow: 0 -2px 0 var(--accent); }
 
-    .suggestions {
-      position: absolute;
-      top: 100%;
-      left: 0;
-      right: 0;
+    .suggestions:not(:empty) {
+      margin-top: 4px;
       background: var(--card-bg);
       border: 1px solid var(--border);
-      border-radius: 0 0 8px 8px;
+      border-radius: 8px;
       max-height: 180px;
       overflow-y: auto;
-      z-index: 1001;
-      box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+      box-shadow: 0 4px 10px rgba(0,0,0,0.10);
       -webkit-overflow-scrolling: touch;
     }
+    .suggestions:empty { display: none; }
     .suggestion-item {
       padding: 10px 12px;
       cursor: pointer;
@@ -201,37 +280,53 @@
     }
 
     .btn {
-      padding: 8px 10px;
+      padding: 9px 10px;
       border: none;
-      border-radius: 6px;
+      border-radius: 10px;
       cursor: pointer;
       font-weight: 600;
       font-size: 0.82rem;
-      transition: background 0.2s;
+      font-family: 'Inter', sans-serif;
+      transition: filter 0.15s, background 0.2s;
       flex: 1;
       text-align: center;
     }
-    .btn-primary { background: #3498db; color: white; }
-    .btn-primary:hover { background: #2980b9; }
-    .btn-success { background: #2ecc71; color: white; }
-    .btn-success:hover { background: #27ae60; }
-    .btn-info { background: #8e44ad; color: white; }
-    .btn-info:hover { background: #732d91; }
-    .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--input-border); }
-    .btn-secondary:hover, .btn-secondary:active { background: var(--hover-bg); }
+    .btn-primary { background: var(--accent); color: var(--on-accent); }
+    .btn-primary:hover { filter: brightness(1.08); }
+    .btn-secondary { background: var(--options-bg); color: var(--text); border: 1px solid var(--options-border); display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+    .btn-secondary:hover, .btn-secondary:active { border-color: var(--accent); color: var(--accent); }
     .btn-secondary:disabled { opacity: 0.4; cursor: default; }
-    .btn-warning { background: #f39c12; color: white; }
+    .btn-outline { background: transparent; color: var(--text); border: 1px solid var(--input-border); }
+    .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
     .btn-danger { background: #e74c3c; color: white; }
     .btn-danger:hover { background: #c0392b; }
     .btn-icon { padding: 8px; flex: initial; width: 38px; display: inline-flex; align-items: center; justify-content: center; }
+    .btn-svg { width: 15px; height: 15px; flex-shrink: 0; }
+    .btn-pill { border-radius: 999px !important; padding: 12px !important; font-size: 0.9rem !important; }
+    .btn-fixed { height: 50px; border-radius: 12px !important; padding: 0 !important; font-size: 0.92rem !important; flex: none; width: 100%; }
+    .btn-send { background: #16a34a; color: white; display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-bottom: 4px; }
+    .btn-send:hover { filter: brightness(1.05); }
+
+    .summary-divider { height: 1px; background: var(--border); margin: 10px 0 12px; }
+
+    .stats-row { display: flex; gap: 8px; margin-bottom: 4px; }
+    .stat-block { flex: 1; background: var(--options-bg); border: 1px solid var(--options-border); border-radius: 10px; padding: 8px 10px; }
+    .stat-block .stat-label { font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+    .stat-block .stat-value { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1.05rem; color: var(--text); margin-top: 1px; }
+    .stat-block.stat-toll .stat-value { color: var(--accent); }
 
     .instructions {
-      margin-top: 8px;
-      padding-top: 8px;
-      border-top: 1px solid var(--border);
+      margin-top: 10px;
+      padding-top: 4px;
     }
-    .step-item { font-size: 0.8rem; padding: 5px 0; border-bottom: 1px dashed var(--border); color: var(--text); }
-    #loading { display: none; color: #e67e22; font-weight: bold; font-size: 0.85rem; text-align: center; }
+    .step-item {
+      display: flex; align-items: baseline; gap: 8px;
+      font-size: 0.8rem; padding: 7px 0; border-bottom: 1px solid var(--border); color: var(--text);
+    }
+    .step-item .step-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); flex-shrink: 0; margin-top: 5px; }
+    .step-item .step-text { flex: 1; line-height: 1.4; }
+    .step-item .step-dist { font-family: 'Space Grotesk', sans-serif; font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+    #loading { display: none; color: var(--accent); font-weight: bold; font-size: 0.85rem; text-align: center; }
 
     .pin-marker {
       position: relative;
@@ -255,22 +350,22 @@
       pointer-events: none;
     }
 
-    .leaflet-control-opacity {
-      background: rgba(255, 255, 255, 0.9);
-      padding: 4px 8px;
-      border-radius: 4px;
-      box-shadow: 0 1px 5px rgba(0,0,0,0.4);
-      font-size: 0.75rem;
-      font-weight: bold;
-      color: #333;
+    .btn-opacity-slider {
+      background-color: #fff;
+      width: 30px;
+      height: 92px;
       display: flex;
       align-items: center;
-      gap: 6px;
-      margin-bottom: 3px !important;
+      justify-content: center;
+      overflow: hidden;
     }
-    .leaflet-control-opacity input[type="range"] {
-      width: 85px;
+    .btn-opacity-slider input[type="range"] {
+      width: 76px;
+      height: 30px;
+      margin: 0;
+      transform: rotate(-90deg);
       cursor: pointer;
+      accent-color: #2980b9;
     }
 
     .btn-fit-bounds {
@@ -297,90 +392,133 @@
 <body>
 
   <div id="map"></div>
+  <div class="sheet-drag-buffer" id="sheetDragBuffer" aria-hidden="true"></div>
 
-  <div class="panel" id="ui-panel">
-    <div style="display:flex; align-items:center; justify-content:space-between;">
-      <h2>GeoRouter (Valhalla)</h2>
-      <a href="./index.html" class="btn btn-secondary btn-icon" title="Retour à l'accueil" style="text-decoration:none; flex-shrink:0;">🏠</a>
+  <div class="sheet" id="sheet">
+    <div class="sheet-handle-zone" id="sheetHandle">
+      <span class="sheet-handle" aria-hidden="true"></span>
     </div>
 
-    <div id="points-container">
+    <div class="sheet-summary" id="sheetSummary">
+      <div class="summary-text" id="summaryText">Où souhaitez-vous aller ?</div>
+      <div class="summary-actions">
+        <button type="button" class="icon-btn" id="settingsBtn" title="Réglages" aria-label="Réglages">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+        <a href="./index.html" class="icon-btn" title="Retour à l'accueil" aria-label="Retour à l'accueil">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h4v-6h2v6h4a1 1 0 0 0 1-1v-9"/></svg>
+        </a>
+      </div>
+    </div>
+
+    <!-- Zone épinglée : toujours visible, même en position basse -->
+    <div class="sheet-pinned" id="sheetPinned">
+      <button class="btn btn-primary btn-fixed" onclick="calculateRoute()">Calculer l'itinéraire</button>
+      <div id="loading">Calcul de l'itinéraire en cours...</div>
+    </div>
+
+    <div class="sheet-body" id="sheetBody">
+
+    <div class="route-card" id="points-container">
       <!-- DÉPART -->
-      <div class="input-group">
-        <div class="input-row">
-          <div class="input-with-clear">
-            <input type="text" id="start-input" placeholder="Départ (clic carte ou recherche)" oninput="toggleClearBtn('start-input', 'start-clear')" />
-            <button type="button" class="btn-clear-text" id="start-clear" onmousedown="handleClearClick(event, 'start', 'start-input', 'start-clear')">✕</button>
+      <div class="route-row">
+        <span class="route-dot route-dot-start" aria-hidden="true"></span>
+        <div class="input-group">
+          <div class="input-row">
+            <div class="input-with-clear">
+              <input type="text" id="start-input" placeholder="Départ (clic carte ou recherche)" oninput="toggleClearBtn('start-input', 'start-clear')" />
+              <button type="button" class="btn-clear-text" id="start-clear" onmousedown="handleClearClick(event, 'start', 'start-input', 'start-clear')">✕</button>
+            </div>
+            <button class="icon-btn icon-btn-ghost" onclick="useCurrentLocation()" title="Ma position actuelle" aria-label="Ma position actuelle">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+            </button>
           </div>
-          <button class="btn btn-secondary btn-icon" onclick="useCurrentLocation()" title="Ma position actuelle">📍</button>
+          <div id="start-suggestions" class="suggestions"></div>
         </div>
-        <div id="start-suggestions" class="suggestions"></div>
       </div>
 
       <!-- VIA POINTS (DYNAMIQUES) -->
       <div id="via-points"></div>
 
       <!-- ARRIVÉE -->
-      <div class="input-group" style="margin-top:4px;">
-        <div class="input-row">
-          <div class="input-with-clear">
-            <input type="text" id="end-input" placeholder="Arrivée (clic carte ou recherche)" oninput="toggleClearBtn('end-input', 'end-clear')" />
-            <button type="button" class="btn-clear-text" id="end-clear" onmousedown="handleClearClick(event, 'end', 'end-input', 'end-clear')">✕</button>
+      <div class="route-row">
+        <span class="route-dot route-dot-end" aria-hidden="true"></span>
+        <div class="input-group">
+          <div class="input-row">
+            <div class="input-with-clear">
+              <input type="text" id="end-input" placeholder="Arrivée (clic carte ou recherche)" oninput="toggleClearBtn('end-input', 'end-clear')" />
+              <button type="button" class="btn-clear-text" id="end-clear" onmousedown="handleClearClick(event, 'end', 'end-input', 'end-clear')">✕</button>
+            </div>
+            <button class="icon-btn icon-btn-ghost" onclick="reverseFullRoute()" title="Inverser le trajet" aria-label="Inverser le trajet">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3v14M8 17l-3.5-3.5M8 17l3.5-3.5"/><path d="M16 21V7M16 7l3.5 3.5M16 7l-3.5 3.5"/></svg>
+            </button>
+            <button class="icon-btn icon-btn-ghost" onclick="addViaPoint()" title="Ajouter une étape" aria-label="Ajouter une étape">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
           </div>
+          <div id="end-suggestions" class="suggestions"></div>
         </div>
-        <div id="end-suggestions" class="suggestions"></div>
-      </div>
-    </div>
-
-    <!-- Options Réseau & Recherche Ultra-Compactes -->
-    <div class="options-row">
-      <div class="option-item">
-        <span>API:</span>
-        <button type="button" id="api-toggle-btn" class="btn-toggle-api" onclick="toggleApiEngine()">Photon</button>
-      </div>
-
-      <div class="option-item">
-        <span>Vmax:</span>
-        <select id="speed-limit-select" style="padding: 2px 4px; font-size: 0.78rem; width: auto;">
-          <option value="none">Libre</option>
-          <option value="120">120</option>
-          <option value="110">110</option>
-          <option value="100">100</option>
-          <option value="90">90</option>
-        </select>
-      </div>
-
-      <div class="option-item">
-        <label class="checkbox-label">
-          <input type="checkbox" id="avoid-tolls-check" />
-          Sans péage
-        </label>
       </div>
     </div>
 
     <div class="btn-grid">
-      <button class="btn btn-secondary" onclick="addViaPoint()">+ Étape</button>
-      <button class="btn btn-warning" onclick="reverseFullRoute()" title="Inverser tout">🔄 Inverser</button>
-      <button class="btn btn-info" onclick="document.getElementById('import-file').click()">📂 Importer</button>
-      <button class="btn btn-danger" onclick="location.reload()" title="Remettre à zéro l'itinéraire">🔄 RAZ</button>
+      <input type="hidden" id="speed-limit-select" value="none" />
+      <button class="btn btn-secondary" onclick="document.getElementById('import-file').click()">
+        <svg class="btn-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+        Importer
+      </button>
+      <button class="btn btn-secondary" onclick="location.reload()" title="Remettre à zéro l'itinéraire">
+        <svg class="btn-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12a9 9 0 1 1 3 6.7"/><path d="M3 21v-5h5"/></svg>
+        RAZ
+      </button>
       <input type="file" id="import-file" accept=".json" style="display:none;" onchange="importJSON(event)" />
     </div>
 
-    <button class="btn btn-primary" onclick="calculateRoute()">Calculer l'itinéraire</button>
-    <div id="loading">Calcul de l'itinéraire en cours...</div>
-
-    <div id="route-summary" style="display:none;">
-      <hr style="margin: 8px 0; border: 0; border-top: 1px solid #ccc;" />
-      <div id="route-stats" style="font-weight: bold; margin-bottom: 6px; font-size: 0.9rem;"></div>
-      
-      <div class="btn-grid" style="margin-bottom: 8px;">
-        <button class="btn btn-success" onclick="exportGPX()">Télécharger GPX</button>
-        <button class="btn btn-info" onclick="exportJSON()">Télécharger JSON</button>
+    <!-- Réglages avancés : repliés par défaut, ouverts via l'icône ⚙️ -->
+    <div class="settings-panel" id="settingsPanel" hidden>
+      <div class="option-row-label" style="margin-bottom:6px; font-size:0.78rem;">Moteur de recherche</div>
+      <div class="segmented" id="geocoder-segmented" role="group" aria-label="Moteur de recherche">
+        <button type="button" class="segmented-btn active" data-engine="photon" onclick="setGeocoder('photon')">Photon</button>
+        <button type="button" class="segmented-btn" data-engine="ban" onclick="setGeocoder('ban')">BAN</button>
       </div>
 
-      <button class="btn btn-primary" style="background:#16a34a; width:100%; margin-bottom:4px;" onclick="sendToRoadbook()">🚀 Envoyer vers Roadbook VE</button>
+      <div class="option-row-label" style="margin:12px 0 6px; font-size:0.78rem;">Vitesse maximale</div>
+      <div class="segmented segmented-scroll" id="speed-segmented" role="group" aria-label="Vitesse maximale">
+        <button type="button" class="segmented-btn active" data-speed="none" onclick="setSpeedLimit('none')">Libre</button>
+        <button type="button" class="segmented-btn" data-speed="120" onclick="setSpeedLimit('120')">120</button>
+        <button type="button" class="segmented-btn" data-speed="110" onclick="setSpeedLimit('110')">110</button>
+        <button type="button" class="segmented-btn" data-speed="100" onclick="setSpeedLimit('100')">100</button>
+        <button type="button" class="segmented-btn" data-speed="90" onclick="setSpeedLimit('90')">90</button>
+      </div>
+
+      <label class="option-row" style="margin-top:8px;">
+        <span class="option-row-label">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 17h16M6 17V9l6-4 6 4v8"/></svg>
+          Éviter les péages
+        </span>
+        <span class="switch">
+          <input type="checkbox" id="avoid-tolls-check" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+        </span>
+      </label>
+    </div>
+
+    <div id="route-summary" style="display:none;">
+      <div class="summary-divider"></div>
+      <div id="route-stats"></div>
+
+      <div class="btn-grid" style="margin-bottom: 8px;">
+        <button class="btn btn-outline" onclick="exportGPX()">Télécharger GPX</button>
+        <button class="btn btn-outline" onclick="exportJSON()">Télécharger JSON</button>
+      </div>
+
+      <button class="btn btn-send btn-pill" onclick="sendToRoadbook()">
+        <svg class="btn-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7Z"/></svg>
+        Envoyer vers Roadbook VE
+      </button>
       
       <div class="instructions" id="instructions-list"></div>
+    </div>
     </div>
   </div>
 
@@ -539,18 +677,140 @@
       return { total, detail };
     }
 
-    function toggleApiEngine() {
-      const btn = document.getElementById('api-toggle-btn');
-      if (currentGeocoder === 'photon') {
-        currentGeocoder = 'ban';
-        btn.textContent = 'BAN';
-      } else {
-        currentGeocoder = 'photon';
-        btn.textContent = 'Photon';
-      }
+    function setGeocoder(engine) {
+      currentGeocoder = engine;
+      document.querySelectorAll('#geocoder-segmented .segmented-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.engine === engine);
+      });
     }
 
+    function setSpeedLimit(value) {
+      document.getElementById('speed-limit-select').value = value;
+      document.querySelectorAll('#speed-segmented .segmented-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.speed === value);
+      });
+    }
+
+    /* ===================== BOTTOM SHEET (haute / milieu / basse) ===================== */
+    const sheet = document.getElementById('sheet');
+    const mapEl = document.getElementById('map');
+    const sheetHandleZone = document.getElementById('sheetHandle');
+    const sheetDragBuffer = document.getElementById('sheetDragBuffer');
+    const sheetSummary = document.getElementById('sheetSummary');
+    const sheetPinned = document.getElementById('sheetPinned');
+    let sheetState = 'mid';
+    let mapReady = false; // la carte Leaflet n'existe pas encore à ce stade du script
+
+    // "basse" = exactement la hauteur du contenu épinglé (poignée + résumé +
+    // bouton Calculer), calculée dynamiquement pour ne jamais rien couper.
+    function pinnedContentHeight() {
+      return sheetHandleZone.offsetHeight + sheetSummary.offsetHeight + sheetPinned.offsetHeight;
+    }
+
+    function sheetHeightsPx() {
+      const vh = window.innerHeight;
+      return {
+        low: pinnedContentHeight(),
+        mid: Math.round(vh * 0.52),
+        high: Math.max(vh - 4, 0) // la carte est quasi entièrement masquée
+      };
+    }
+
+    // Le sheet ET la carte se complètent toujours exactement (pas de superposition) :
+    // quand le sheet grandit, la carte rétrécit d'autant. Le buffer de préhension
+    // reste collé juste au-dessus du sheet, quelle que soit sa hauteur.
+    function applySheetHeight(px) {
+      const vh = window.innerHeight;
+      sheet.style.height = px + 'px';
+      mapEl.style.height = Math.max(vh - px, 0) + 'px';
+      sheetDragBuffer.style.bottom = px + 'px';
+      if (mapReady) map.invalidateSize({ pan: false });
+    }
+
+    function setSheetState(state) {
+      sheetState = state;
+      applySheetHeight(sheetHeightsPx()[state]);
+      sheet.dataset.state = state;
+    }
+
+    let sheetDrag = null;
+    function startSheetDrag(e) {
+      e.preventDefault(); // supprime les événements souris de compatibilité générés après un tap tactile
+      ignoreNextMapClick = true; // évite qu'un clic fantôme retombe sur la carte après redimensionnement
+      setTimeout(() => { ignoreNextMapClick = false; }, 400); // sécurité : ne bloque pas un vrai clic ultérieur
+      sheetDrag = { startY: e.clientY, startHeight: sheet.getBoundingClientRect().height, moved: 0 };
+      sheet.classList.add('dragging');
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    sheetHandleZone.addEventListener('pointerdown', startSheetDrag);
+    sheetDragBuffer.addEventListener('pointerdown', startSheetDrag);
+
+    document.addEventListener('pointermove', (e) => {
+      if (!sheetDrag) return;
+      const dy = e.clientY - sheetDrag.startY;
+      sheetDrag.moved = Math.max(sheetDrag.moved, Math.abs(dy));
+      const h = sheetHeightsPx();
+      const newHeight = Math.min(Math.max(sheetDrag.startHeight - dy, h.low), h.high);
+      applySheetHeight(newHeight);
+    });
+
+    document.addEventListener('pointerup', () => {
+      if (!sheetDrag) return;
+      sheet.classList.remove('dragging');
+      if (sheetDrag.moved < 6) {
+        // Tap sur la poignée : fait défiler basse -> milieu -> haute -> basse
+        const order = ['low', 'mid', 'high'];
+        setSheetState(order[(order.indexOf(sheetState) + 1) % order.length]);
+      } else {
+        const currentHeight = sheet.getBoundingClientRect().height;
+        const h = sheetHeightsPx();
+        const nearest = Object.entries(h).sort((a, b) => Math.abs(a[1] - currentHeight) - Math.abs(b[1] - currentHeight))[0][0];
+        setSheetState(nearest);
+      }
+      sheetDrag = null;
+    });
+
+    // Taper sur la barre résumé (hors boutons) remonte le sheet en position milieu s'il est en position basse
+    sheetSummary.addEventListener('click', (e) => {
+      if (e.target.closest('.icon-btn')) return;
+      if (sheetState === 'low') setSheetState('mid');
+    });
+
+    window.addEventListener('resize', () => setSheetState(sheetState));
+
+    // Réglages avancés (moteur de recherche) repliés par défaut
+    document.getElementById('settingsBtn').addEventListener('click', () => {
+      const panel = document.getElementById('settingsPanel');
+      panel.hidden = !panel.hidden;
+      if (!panel.hidden && sheetState === 'low') setSheetState('mid');
+    });
+
+    // Résumé compact de la barre du haut, mis à jour au fil de la saisie
+    function updateSummaryText() {
+      const el = document.getElementById('summaryText');
+      if (document.getElementById('route-summary').style.display === 'block') return; // le résultat prime une fois calculé
+      const startVal = document.getElementById('start-input').value.trim();
+      const endVal = document.getElementById('end-input').value.trim();
+      if (!startVal && !endVal) {
+        el.innerHTML = 'Où souhaitez-vous aller ?';
+      } else {
+        el.innerHTML = `<span>${startVal || '<span class="muted">Départ</span>'}</span> → <span>${endVal || '<span class="muted">Arrivée</span>'}</span>`;
+      }
+    }
+    document.getElementById('start-input').addEventListener('input', updateSummaryText);
+    document.getElementById('end-input').addEventListener('input', updateSummaryText);
+
+    // Position haute obligatoire dès qu'on tape dans un champ de recherche :
+    // la carte se masque pour laisser toute la place au clavier + aux suggestions.
+    document.addEventListener('focusin', (e) => {
+      if (e.target.matches('input[type="text"]')) {
+        setSheetState('high');
+      }
+    });
+
     const map = L.map('map', { minZoom: 2, maxZoom: 18 });
+    mapReady = true;
+    setSheetState('mid'); // dimensionne carte + sheet maintenant que Leaflet existe
     const franceBounds = L.latLngBounds([41.3, -5.2], [51.1, 9.6]);
     map.fitBounds(franceBounds, { padding: [10, 10] });
 
@@ -665,15 +925,16 @@
     }
 
     let routeOpacity = 0.85;
-    const opacityControl = L.control({ position: 'bottomleft' });
+    const opacityControl = L.control({ position: 'topleft' });
     opacityControl.onAdd = function() {
-      const div = L.DomUtil.create('div', 'leaflet-control-opacity');
+      const container = L.DomUtil.create('div', 'leaflet-bar');
+      const div = L.DomUtil.create('div', 'btn-opacity-slider', container);
+      div.title = "Opacité de la surcouche péages";
       div.innerHTML = `
-        <span>Trace:</span>
-        <input type="range" id="opacity-slider" min="0" max="1" step="0.05" value="${routeOpacity}">
+        <input type="range" id="opacity-slider" min="0" max="1" step="0.05" value="${routeOpacity}" orient="vertical" aria-label="Opacité de la surcouche péages">
       `;
-      L.DomEvent.disableClickPropagation(div);
-      return div;
+      L.DomEvent.disableClickPropagation(container);
+      return container;
     };
     opacityControl.addTo(map);
 
@@ -698,7 +959,7 @@
     }
 
     map.on('movestart dragstart', closeAllSuggestions);
-    document.getElementById('ui-panel').addEventListener('scroll', closeAllSuggestions, { passive: true });
+    document.getElementById('sheetBody').addEventListener('scroll', closeAllSuggestions, { passive: true });
 
     map.on('click', function(e) {
       closeAllSuggestions();
@@ -737,6 +998,8 @@
         toggleClearBtn('end-input', 'end-clear');
       }
       updateMarkers();
+      if (typeof updateSummaryText === 'function') updateSummaryText();
+      if (sheetState === 'high') setSheetState('mid');
     }
 
     function toggleClearBtn(inputId, btnId) {
@@ -793,29 +1056,79 @@
       updateMarkers();
     }
 
+    /* --- Glisser-déposer pour réordonner les étapes (Pointer Events : souris + tactile) --- */
+    let dragState = null;
+
+    function initViaDrag(row) {
+      const handle = row.querySelector('.drag-handle');
+      handle.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        dragState = { rowEl: row, pointerId: e.pointerId };
+        row.classList.add('dragging');
+        handle.setPointerCapture(e.pointerId);
+      });
+    }
+
+    document.addEventListener('pointermove', (e) => {
+      if (!dragState) return;
+      const container = document.getElementById('via-points');
+      const rows = Array.from(container.querySelectorAll('.route-row'));
+      const overRow = rows.find(r => {
+        if (r === dragState.rowEl) return false;
+        const rect = r.getBoundingClientRect();
+        return e.clientY >= rect.top && e.clientY <= rect.bottom;
+      });
+      rows.forEach(r => r.classList.remove('drag-over'));
+      if (overRow) {
+        const rect = overRow.getBoundingClientRect();
+        const before = e.clientY < rect.top + rect.height / 2;
+        container.insertBefore(dragState.rowEl, before ? overRow : overRow.nextSibling);
+      }
+    });
+
+    document.addEventListener('pointerup', (e) => {
+      if (!dragState) return;
+      dragState.rowEl.classList.remove('dragging');
+
+      const container = document.getElementById('via-points');
+      const newOrder = Array.from(container.querySelectorAll('.route-row'))
+        .map(r => routePoints.vias[parseInt(r.dataset.viaIndex, 10)]);
+      routePoints.vias = newOrder;
+      dragState = null;
+      renderViaInputs();
+      updateMarkers();
+    });
+
     function renderViaInputs() {
       const container = document.getElementById('via-points');
       container.innerHTML = '';
 
       routePoints.vias.forEach((v, index) => {
-        const div = document.createElement('div');
-        div.className = 'input-group';
-        div.style.marginTop = '4px';
+        const row = document.createElement('div');
+        row.className = 'route-row';
         const coordsStr = v ? `${v.lat.toFixed(5)}, ${v.lng.toFixed(5)}` : '';
 
-        div.innerHTML = `
-          <div class="input-row">
-            <div class="input-with-clear">
-              <input type="text" id="via-input-${index}" placeholder="Étape N°${index + 1}" value="${coordsStr}" oninput="toggleClearBtn('via-input-${index}', 'via-clear-${index}')">
-              <button type="button" class="btn-clear-text" id="via-clear-${index}" onmousedown="handleClearClick(event, ${index}, 'via-input-${index}', 'via-clear-${index}')">✕</button>
+        row.dataset.viaIndex = index;
+        row.innerHTML = `
+          <span class="drag-handle" title="Glisser pour réordonner">
+            <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
+          </span>
+          <span class="route-dot route-dot-via" aria-hidden="true">${index + 1}</span>
+          <div class="input-group">
+            <div class="input-row">
+              <div class="input-with-clear">
+                <input type="text" id="via-input-${index}" placeholder="Étape N°${index + 1}" value="${coordsStr}" oninput="toggleClearBtn('via-input-${index}', 'via-clear-${index}')">
+                <button type="button" class="btn-clear-text" id="via-clear-${index}" onmousedown="handleClearClick(event, ${index}, 'via-input-${index}', 'via-clear-${index}')">✕</button>
+              </div>
+              <button class="icon-btn icon-btn-ghost icon-btn-sm" onclick="removeVia(${index})" title="Supprimer l'étape" aria-label="Supprimer l'étape">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M9 7V4h6v3M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/></svg>
+              </button>
             </div>
-            <button class="btn btn-secondary btn-icon" onclick="moveVia(${index}, -1)" ${index === 0 ? 'disabled' : ''}>⬆️</button>
-            <button class="btn btn-secondary btn-icon" onclick="moveVia(${index}, 1)" ${index === routePoints.vias.length - 1 ? 'disabled' : ''}>⬇️</button>
-            <button class="btn-remove-step" onclick="removeVia(${index})" title="Supprimer">🗑️</button>
+            <div id="via-suggestions-${index}" class="suggestions"></div>
           </div>
-          <div id="via-suggestions-${index}" class="suggestions"></div>
         `;
-        container.appendChild(div);
+        container.appendChild(row);
+        initViaDrag(row);
 
         toggleClearBtn(`via-input-${index}`, `via-clear-${index}`);
 
@@ -824,18 +1137,9 @@
           document.getElementById(`via-input-${index}`).value = name;
           toggleClearBtn(`via-input-${index}`, `via-clear-${index}`);
           updateMarkers();
+          if (sheetState === 'high') setSheetState('mid');
         });
       });
-    }
-
-    function moveVia(index, direction) {
-      const newIndex = index + direction;
-      if (newIndex < 0 || newIndex >= routePoints.vias.length) return;
-      const temp = routePoints.vias[index];
-      routePoints.vias[index] = routePoints.vias[newIndex];
-      routePoints.vias[newIndex] = temp;
-      renderViaInputs();
-      updateMarkers();
     }
 
     function removeVia(index) {
@@ -1076,10 +1380,26 @@
       const listDiv = document.getElementById('instructions-list');
 
       const peage = calculerCoutPeage(decodedRouteCoords);
-      const peageStr = peage.indexIndisponible
-        ? ' | Péage : indisponible (surcouche non chargée)'
-        : (peage.total > 0.01 ? ` | Péage : ~${peage.total.toFixed(2)} €` : ' | Péage : sans péage');
-      statsDiv.textContent = `Distance : ${routeSummary.length.toFixed(2)} km | Temps : ~${formatDuration(routeSummary.time)}${peageStr}`;
+      const peageValue = peage.indexIndisponible
+        ? 'N/D'
+        : (peage.total > 0.01 ? `${peage.total.toFixed(2)} €` : 'Gratuit');
+
+      statsDiv.innerHTML = `
+        <div class="stats-row">
+          <div class="stat-block">
+            <div class="stat-label">Distance</div>
+            <div class="stat-value">${routeSummary.length.toFixed(1)} km</div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-label">Durée</div>
+            <div class="stat-value">${formatDuration(routeSummary.time)}</div>
+          </div>
+          <div class="stat-block stat-toll">
+            <div class="stat-label">Péage</div>
+            <div class="stat-value">${peageValue}</div>
+          </div>
+        </div>
+      `;
 
       const oldDetail = document.getElementById('route-peage-detail');
       if (oldDetail) oldDetail.remove();
@@ -1090,7 +1410,7 @@
           .join(' · ');
         const detailDiv = document.createElement('div');
         detailDiv.id = 'route-peage-detail';
-        detailDiv.style.cssText = 'font-size:0.75rem; color:var(--muted); margin-bottom:6px;';
+        detailDiv.style.cssText = 'font-size:0.72rem; color:var(--muted); margin:6px 0 4px;';
         detailDiv.textContent = detailStr;
         statsDiv.insertAdjacentElement('afterend', detailDiv);
       }
@@ -1104,13 +1424,26 @@
           item.className = 'step-item';
           const distMeters = Math.round(step.length * 1000);
           const distStr = distMeters >= 1000 ? `${(distMeters / 1000).toFixed(1)} km` : `${distMeters} m`;
-          item.textContent = `[Km ${cumulatedKm.toFixed(1)}] ${step.instruction} (${distStr})`;
+          item.innerHTML = `
+            <span class="step-dot"></span>
+            <span class="step-text">${step.instruction}</span>
+            <span class="step-dist">${distStr}</span>
+          `;
           listDiv.appendChild(item);
           cumulatedKm += step.length;
         });
       });
 
       summaryDiv.style.display = 'block';
+
+      // Barre résumée compacte : passe du prompt "Où allez-vous ?" au résultat du trajet
+      const summaryText = document.getElementById('summaryText');
+      summaryText.innerHTML = `${routeSummary.length.toFixed(1)} km · ${formatDuration(routeSummary.time)}` +
+        (peage.total > 0.01 ? ` · <span style="color:var(--accent)">${peage.total.toFixed(2)} €</span>` : '');
+
+      // Le résultat prime : on repasse en position milieu (résultats + carte visibles) et on amène les résultats en vue
+      if (sheetState === 'low' || sheetState === 'high') setSheetState('mid');
+      setTimeout(() => summaryDiv.scrollIntoView({ block: 'start', behavior: 'smooth' }), 150);
     }
 
     function importJSON(event) {
