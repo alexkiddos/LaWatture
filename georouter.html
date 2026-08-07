@@ -308,6 +308,7 @@
     .btn-pill { border-radius: 999px !important; padding: 12px !important; font-size: 0.9rem !important; }
     .btn-fixed { height: 50px; border-radius: 12px !important; padding: 0 !important; font-size: 0.92rem !important; flex: none; width: 100%; }
     .btn-send { background: #16a34a; color: white; display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-bottom: 4px; }
+    #route-peage-detail { font-size: 0.72rem; color: var(--muted); margin: 6px 0 4px; display: none; }
     .btn-send:hover { filter: brightness(1.05); }
 
     .summary-divider { height: 1px; background: var(--border); margin: 10px 0 12px; }
@@ -519,7 +520,9 @@
         <svg class="btn-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7Z"/></svg>
         Envoyer vers Roadbook VE
       </button>
-      
+
+      <div id="route-peage-detail"></div>
+
       <div class="instructions" id="instructions-list"></div>
     </div>
     </div>
@@ -1071,6 +1074,36 @@
       );
     }
 
+    // Variante Promise, sans recentrage carte (calculateRoute recadre déjà sur
+    // tout le trajet une fois calculé - un setView ici ferait un saut inutile).
+    // Utilisée pour pré-remplir automatiquement le départ quand seule
+    // l'arrivée a été renseignée.
+    function resolveStartFromCurrentLocation() {
+      return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+          reject(new Error("La géolocalisation n'est pas supportée par votre navigateur."));
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const latlng = L.latLng(position.coords.latitude, position.coords.longitude);
+            const coordsString = `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`;
+            setPoint('start', latlng, coordsString); // remplit visiblement le champ, pas de magie silencieuse
+            resolve(latlng);
+          },
+          (error) => {
+            const messages = {
+              1: "Localisation refusée. Renseignez un départ manuellement.",
+              2: "Position indisponible. Renseignez un départ manuellement.",
+              3: "La localisation a pris trop de temps. Renseignez un départ manuellement."
+            };
+            reject(new Error(messages[error.code] || "Impossible de vous localiser. Renseignez un départ manuellement."));
+          },
+          { enableHighAccuracy: true, timeout: 8000 }
+        );
+      });
+    }
+
     function addViaPoint(latlng = null) {
       routePoints.vias.push(latlng);
       renderViaInputs();
@@ -1326,6 +1359,13 @@
       map.setView(coords, 14);
     });
 
+    // Arrondit à ~2 chiffres significatifs (ex: 24.10 -> 24, 4.42 -> 4.4, 0.85 -> 0.85)
+    // cohérent avec le total péage arrondi à l'entier supérieur : c'est une estimation, pas un montant exact.
+    function formatSig2(n) {
+      if (n === 0) return '0';
+      return Number(n.toPrecision(2)).toString();
+    }
+
     function formatDuration(totalSeconds) {
       const totalMinutes = Math.round(totalSeconds / 60);
       const hours = Math.floor(totalMinutes / 60);
@@ -1334,9 +1374,24 @@
     }
 
     async function calculateRoute() {
-      if (!routePoints.start || !routePoints.end) {
-        alert("Veuillez sélectionner au moins un départ et une arrivée.");
+      if (!routePoints.end) {
+        alert("Veuillez sélectionner au moins une arrivée.");
         return;
+      }
+
+      if (!routePoints.start) {
+        const loadingEl = document.getElementById('loading');
+        loadingEl.textContent = 'Localisation de votre position...';
+        loadingEl.style.display = 'block';
+        try {
+          await resolveStartFromCurrentLocation();
+        } catch (err) {
+          loadingEl.style.display = 'none';
+          loadingEl.textContent = "Calcul de l'itinéraire en cours...";
+          alert(err.message);
+          return;
+        }
+        loadingEl.textContent = "Calcul de l'itinéraire en cours...";
       }
 
       ensureTollDataLoaded(); // en parallèle : dispo pour le calcul du coût péage même sans afficher la couche
@@ -1427,18 +1482,16 @@
         </div>
       `;
 
-      const oldDetail = document.getElementById('route-peage-detail');
-      if (oldDetail) oldDetail.remove();
-
+      const detailEl = document.getElementById('route-peage-detail');
       if (peage.detail.length > 0) {
         const detailStr = peage.detail
-          .map(d => `${d.numero === '?' ? 'segment non identifié' : d.numero}: ${d.nbTroncons} tronçon${d.nbTroncons > 1 ? 's' : ''} → ${d.cout.toFixed(2)} €`)
+          .map(d => `${d.numero === '?' ? 'segment non identifié' : d.numero}: ${d.nbTroncons} tronçon${d.nbTroncons > 1 ? 's' : ''} → ${formatSig2(d.cout)} €`)
           .join(' · ');
-        const detailDiv = document.createElement('div');
-        detailDiv.id = 'route-peage-detail';
-        detailDiv.style.cssText = 'font-size:0.72rem; color:var(--muted); margin:6px 0 4px;';
-        detailDiv.textContent = detailStr;
-        statsDiv.insertAdjacentElement('afterend', detailDiv);
+        detailEl.textContent = detailStr;
+        detailEl.style.display = 'block';
+      } else {
+        detailEl.textContent = '';
+        detailEl.style.display = 'none';
       }
 
       listDiv.innerHTML = '';
