@@ -22,10 +22,12 @@
 <style>
   :root[data-theme="light"] {
     --bg: #FFFFFF; --ink: #111114; --muted: #6B6B72; --line: #EBEBEE; --panel: #FAFAFB;
+    --panel-2: #F0F1F3; --line-strong: #D7D8DE;
     --accent: #0B72E7; --on-accent: #FFFFFF;
   }
   :root[data-theme="dark"] {
     --bg: #0B0B0E; --ink: #F2F2F5; --muted: #8B8B93; --line: #232329; --panel: #141418;
+    --panel-2: #1B1B20; --line-strong: #34343D;
     --accent: #4FA3FF; --on-accent: #0B0B0E;
   }
   * { box-sizing: border-box; }
@@ -45,7 +47,7 @@
 
   /* --- carte héros : action principale --- */
   .hero {
-    background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 14px;
+    background: var(--panel); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 14px;
     padding: 30px 26px 28px; margin-bottom: 28px; position: relative;
   }
   .hero .kicker { font-family: 'Inter', sans-serif; font-weight: 600; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
@@ -68,7 +70,7 @@
   /* --- tuiles secondaires : chemins alternatifs, clairement cliquables --- */
   .secondary-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .tile {
-    display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    display: block; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px;
     padding: 16px 16px 14px; text-decoration: none; color: var(--ink); cursor: pointer;
     transition: border-color 0.15s;
   }

@@ -20,12 +20,14 @@
     <style>
       :root {
         --bg: #FFFFFF; --text: #111114; --border: #EBEBEE; --card-bg: #FAFAFB; --input-bg: #FAFAFB; --input-border: #EBEBEE; --pdc-bg: #F3F5F8; --btn-bg: #FAFAFB; --btn-text: #111114;
+        --panel-2: #F0F1F3; --line-strong: #D7D8DE;
         --accent: #0B72E7; --on-accent: #FFFFFF; --op-color: #0B72E7; --dispo-ok: #16a34a; --dispo-warn: #d97706; --dispo-alert: #dc2626;
         --dispo-ok-bg: #dcfce7; --dispo-warn-bg: #fef3c7; --dispo-alert-bg: #fee2e2;
       }
       @media (prefers-color-scheme: dark) {
         :root {
           --bg: #0B0B0E; --text: #F2F2F5; --border: #232329; --card-bg: #141418; --input-bg: #141418; --input-border: #232329; --pdc-bg: #182130; --btn-bg: #182130; --btn-text: #F2F2F5;
+          --panel-2: #1B1B20; --line-strong: #34343D;
           --accent: #4FA3FF; --on-accent: #0B0B0E; --op-color: #4FA3FF; --dispo-ok: #4ade80; --dispo-warn: #fbbf24; --dispo-alert: #f87171;
           --dispo-ok-bg: #052e1a; --dispo-warn-bg: #451a03; --dispo-alert-bg: #450a0a;
         }
@@ -87,19 +89,20 @@
 
       .header-controls { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 10px; font-size: 13px; }
       .header-trailing-group { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-      .refresh-btn { background: var(--btn-bg); color: var(--btn-text); border: 1px solid var(--border); padding: 5px 9px; border-radius: 10px; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; height: 34px; width: 34px; box-sizing: border-box; }
+      .refresh-btn { background: var(--panel-2); color: var(--btn-text); border: none; padding: 5px 9px; border-radius: 10px; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; height: 34px; width: 34px; box-sizing: border-box; }
+      .refresh-btn:hover, .refresh-btn:active { filter: brightness(0.96); }
       .refresh-btn.tool-active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 
-      .input-field { background: var(--input-bg); color: var(--text); border: 1px solid var(--input-border); padding: 5px; width: 52px; height: 34px; box-sizing: border-box; border-radius: 10px; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-align: center; font-size: 13px; }
+      .input-field { background: var(--input-bg); color: var(--text); border: 1px solid var(--line-strong); padding: 5px; width: 52px; height: 34px; box-sizing: border-box; border-radius: 10px; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-align: center; font-size: 13px; }
       
       .multi-select-container { position: relative; display: inline-block; font-size: 12px; }
-      .multi-select-header { background: var(--input-bg); color: var(--text); border: 1px solid var(--input-border); padding: 5px 10px; border-radius: 999px; cursor: pointer; font-weight: 500; white-space: nowrap; user-select: none; height: 34px; box-sizing: border-box; display: inline-flex; align-items: center; }
-      .multi-select-dropdown { display: none; position: fixed; z-index: 200; background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-height: 180px; overflow-y: auto; width: 220px; padding: 6px; }
+      .multi-select-header { background: var(--panel-2); color: var(--text); border: none; padding: 5px 10px; border-radius: 999px; cursor: pointer; font-weight: 500; white-space: nowrap; user-select: none; height: 34px; box-sizing: border-box; display: inline-flex; align-items: center; }
+      .multi-select-dropdown { display: none; position: fixed; z-index: 200; background: var(--card-bg); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-height: 180px; overflow-y: auto; width: 220px; padding: 6px; }
       .multi-select-dropdown.show { display: block; }
       .multi-select-item { display: flex; align-items: center; gap: 6px; padding: 4px 2px; cursor: pointer; font-size: 11px; }
       .multi-select-item input { accent-color: var(--accent); }
 
-      .station-card { display: flex; flex-direction: column; border: 1px solid var(--border); padding: 12px; cursor: pointer; background: var(--card-bg); border-radius: 12px; margin-bottom: 8px; }
+      .station-card { display: flex; flex-direction: column; border: 1px solid var(--line-strong); padding: 12px; cursor: pointer; background: var(--card-bg); border-radius: 12px; margin-bottom: 8px; }
       .station-main { display: flex; align-items: center; width: 100%; }
       .nav-block { width: 75px; min-width: 75px; border-right: 1px solid var(--border); margin-right: 12px; }
       .nav-block.nav-block-maneuver { display: flex; flex-direction: column; align-items: center; justify-content: center; }
@@ -124,7 +127,7 @@
       .dispo-ok { color: var(--dispo-ok); } .dispo-warn { color: var(--dispo-warn); } .dispo-alert { color: var(--dispo-alert); }
 
       /* --- Prochaine instruction de conduite : mise en avant + code couleur par urgence --- */
-      .roadbook-next { border: 2px solid var(--border); border-radius: 12px; padding: 18px 12px; margin-bottom: 10px; }
+      .roadbook-next { border: 2px solid var(--line-strong); border-radius: 12px; padding: 18px 12px; margin-bottom: 10px; }
       .roadbook-next .maneuver-icon { width: 42px; height: 42px; }
       .roadbook-next .pk-val { font-size: 26px; }
       .roadbook-next .pk-unit { font-size: 12px; }
