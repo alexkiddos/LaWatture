@@ -649,22 +649,18 @@
     
     /* --- CALCUL DU COÛT PÉAGE PAR MATCHING GÉOMÉTRIQUE ---
        Pour chaque segment du tracé Valhalla, on cherche le tronçon payant le
-       plus proche dans la surcouche BD Carto. On ne retient un tronçon que
-       s'il a été matché sur au moins 2 points consécutifs du tracé (pas
-       juste un point isolé) - protège contre un simple croisement ponctuel
-       (pont, bretelle parallèle sur un instant) sans dépendre d'un seuil de
-       distance absolu, dont on ne connaît pas la bonne valeur pour la
-       granularité réelle des tronçons BD Carto (un seuil en distance mal
-       calibré peut filtrer à tort de vrais péages courts). Aucun coût n'est
-       calculé ici : chaque tronçon BD Carto porte déjà son propre
-       cout_troncon_eur (figé lors de la génération du geojson). Aucun match
-       retenu = segment gratuit (BD Carto fait foi). */
-    const SEUIL_MATCH_NB_POINTS = 2; // au moins 2 points consécutifs matchés, pas juste 1
-
+       plus proche dans la surcouche BD Carto. S'il est à moins de
+       TOLERANCE_MATCH_METRES, ce tronçon est marqué "traversé". Aucun coût
+       n'est calculé ici : chaque tronçon BD Carto porte déjà son propre
+       cout_troncon_eur (figé lors de la génération du geojson) - on se
+       contente de sommer les coûts des tronçons DISTINCTS traversés
+       (idTroncon dédupliqué, pour ne jamais compter deux fois un même
+       tronçon revisité par plusieurs points successifs du tracé). Aucun
+       match trouvé = segment gratuit (BD Carto fait foi). */
     function calculerCoutPeage(routeCoords) {
       if (!tollIndex) return { total: 0, detail: [], indexIndisponible: true };
 
-      const matchsParTroncon = new Map(); // idTroncon -> { numero, cout, longueurKm, nbPoints }
+      const tronconsTraverses = new Map(); // idTroncon -> { numero, cout, km }
 
       for (let i = 0; i < routeCoords.length - 1; i++) {
         const [lat1, lng1] = routeCoords[i];
@@ -674,24 +670,18 @@
         const troncon = tollLeProchePoint(midLat, midLng);
         if (!troncon) continue;
 
-        if (!matchsParTroncon.has(troncon.idTroncon)) {
-          matchsParTroncon.set(troncon.idTroncon, {
-            numero: troncon.numero, cout: troncon.cout,
-            longueurKm: troncon.longueurKm || 0, nbPoints: 0
-          });
+        if (!tronconsTraverses.has(troncon.idTroncon)) {
+          tronconsTraverses.set(troncon.idTroncon, { numero: troncon.numero, cout: troncon.cout, km: troncon.longueurKm || 0 });
         }
-        matchsParTroncon.get(troncon.idTroncon).nbPoints += 1;
       }
 
       let total = 0;
       const parAutoroute = {}; // { "A6": { cout: 4.4, km: 23.1 } }
-      matchsParTroncon.forEach(({ numero, cout, longueurKm, nbPoints }) => {
-        if (nbPoints < SEUIL_MATCH_NB_POINTS) return; // point isolé, probable simple croisement -> ignoré
-
+      tronconsTraverses.forEach(({ numero, cout, km }) => {
         total += cout;
         if (!parAutoroute[numero]) parAutoroute[numero] = { cout: 0, km: 0 };
         parAutoroute[numero].cout += cout;
-        parAutoroute[numero].km += longueurKm;
+        parAutoroute[numero].km += km;
       });
 
       const detail = Object.entries(parAutoroute)
