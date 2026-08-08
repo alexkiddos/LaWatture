@@ -649,30 +649,22 @@
     
     /* --- CALCUL DU COÛT PÉAGE PAR MATCHING GÉOMÉTRIQUE ---
        Pour chaque segment du tracé Valhalla, on cherche le tronçon payant le
-       plus proche dans la surcouche BD Carto. On accumule la distance
-       RÉELLEMENT PARCOURUE en restant à moins de TOLERANCE_MATCH_METRES de
-       chaque tronçon - un seul point de croisement (pont, bretelle
-       parallèle sur quelques mètres) ne suffit plus à le facturer en
-       entier : il faut avoir suivi une distance minimale, pas juste frôlé
-       le tronçon à un instant donné. Aucun coût n'est calculé ici : chaque
-       tronçon BD Carto porte déjà son propre cout_troncon_eur (figé lors de
-       la génération du geojson). Aucun match retenu = segment gratuit
-       (BD Carto fait foi). */
-    function haversineKm(lat1, lon1, lat2, lon2) {
-      const R = 6371;
-      const toRad = d => d * Math.PI / 180;
-      const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
-      const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    }
-
-    const SEUIL_MATCH_ABSOLU_KM = 0.1; // 100m minimum suivis pour retenir un grand tronçon
-    const SEUIL_MATCH_RATIO = 0.5;     // ou 50% de sa propre longueur si le tronçon est court
+       plus proche dans la surcouche BD Carto. On ne retient un tronçon que
+       s'il a été matché sur au moins 2 points consécutifs du tracé (pas
+       juste un point isolé) - protège contre un simple croisement ponctuel
+       (pont, bretelle parallèle sur un instant) sans dépendre d'un seuil de
+       distance absolu, dont on ne connaît pas la bonne valeur pour la
+       granularité réelle des tronçons BD Carto (un seuil en distance mal
+       calibré peut filtrer à tort de vrais péages courts). Aucun coût n'est
+       calculé ici : chaque tronçon BD Carto porte déjà son propre
+       cout_troncon_eur (figé lors de la génération du geojson). Aucun match
+       retenu = segment gratuit (BD Carto fait foi). */
+    const SEUIL_MATCH_NB_POINTS = 2; // au moins 2 points consécutifs matchés, pas juste 1
 
     function calculerCoutPeage(routeCoords) {
       if (!tollIndex) return { total: 0, detail: [], indexIndisponible: true };
 
-      const kmSuivisParTroncon = new Map(); // idTroncon -> { numero, cout, longueurKm, kmSuivis }
+      const matchsParTroncon = new Map(); // idTroncon -> { numero, cout, longueurKm, nbPoints }
 
       for (let i = 0; i < routeCoords.length - 1; i++) {
         const [lat1, lng1] = routeCoords[i];
@@ -682,20 +674,19 @@
         const troncon = tollLeProchePoint(midLat, midLng);
         if (!troncon) continue;
 
-        if (!kmSuivisParTroncon.has(troncon.idTroncon)) {
-          kmSuivisParTroncon.set(troncon.idTroncon, {
+        if (!matchsParTroncon.has(troncon.idTroncon)) {
+          matchsParTroncon.set(troncon.idTroncon, {
             numero: troncon.numero, cout: troncon.cout,
-            longueurKm: troncon.longueurKm || 0, kmSuivis: 0
+            longueurKm: troncon.longueurKm || 0, nbPoints: 0
           });
         }
-        kmSuivisParTroncon.get(troncon.idTroncon).kmSuivis += haversineKm(lat1, lng1, lat2, lng2);
+        matchsParTroncon.get(troncon.idTroncon).nbPoints += 1;
       }
 
       let total = 0;
       const parAutoroute = {}; // { "A6": { cout: 4.4, km: 23.1 } }
-      kmSuivisParTroncon.forEach(({ numero, cout, longueurKm, kmSuivis }) => {
-        const seuil = Math.min(SEUIL_MATCH_ABSOLU_KM, longueurKm * SEUIL_MATCH_RATIO);
-        if (kmSuivis < seuil) return; // simple croisement, pas réellement emprunté -> ignoré
+      matchsParTroncon.forEach(({ numero, cout, longueurKm, nbPoints }) => {
+        if (nbPoints < SEUIL_MATCH_NB_POINTS) return; // point isolé, probable simple croisement -> ignoré
 
         total += cout;
         if (!parAutoroute[numero]) parAutoroute[numero] = { cout: 0, km: 0 };
