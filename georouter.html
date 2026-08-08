@@ -495,6 +495,13 @@
         <button type="button" class="segmented-btn" data-speed="90" onclick="setSpeedLimit('90')">90</button>
       </div>
 
+      <div class="option-row-label" style="margin:12px 0 6px; font-size:0.78rem;">Autoroutes</div>
+      <div class="segmented" id="highways-segmented" role="group" aria-label="Préférence autoroutes">
+        <button type="button" class="segmented-btn active" data-pref="autoriser" onclick="setAutoroutesPref('autoriser')">Autoriser</button>
+        <button type="button" class="segmented-btn" data-pref="eviter" onclick="setAutoroutesPref('eviter')">Éviter</button>
+        <button type="button" class="segmented-btn" data-pref="favoriser" onclick="setAutoroutesPref('favoriser')">Favoriser</button>
+      </div>
+
       <label class="option-row" style="margin-top:8px;">
         <span class="option-row-label">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 17h16M6 17V9l6-4 6 4v8"/></svg>
@@ -557,7 +564,7 @@
       const lines = [];
       const grid = new Map();
 
-      function ajouterLigne(coords, cout, numero, idxOriginal) {
+      function ajouterLigne(coords, cout, numero, idxOriginal, longueurKm) {
         if (!coords || coords.length < 2) return;
         let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
         coords.forEach(([lng, lat]) => {
@@ -572,7 +579,7 @@
         // compter son coût qu'UNE SEULE FOIS même si le tracé la traverse
         // sur plusieurs points/segments successifs.
         const idx = lines.length;
-        lines.push({ coords, cout, numero, idTroncon: idxOriginal, turfLine: turf.lineString(coords) });
+        lines.push({ coords, cout, numero, longueurKm, idTroncon: idxOriginal, turfLine: turf.lineString(coords) });
 
         const cx0 = Math.floor(minLng / GRID_CELL_DEG), cx1 = Math.floor(maxLng / GRID_CELL_DEG);
         const cy0 = Math.floor(minLat / GRID_CELL_DEG), cy1 = Math.floor(maxLat / GRID_CELL_DEG);
@@ -593,14 +600,15 @@
         if (!geom) return;
 
         if (geom.type === 'LineString') {
-          ajouterLigne(geom.coordinates, cout, numero, idxOriginal);
+          const longueurKm = turf.length(turf.lineString(geom.coordinates), { units: 'kilometers' });
+          ajouterLigne(geom.coordinates, cout, numero, idxOriginal, longueurKm);
         } else if (geom.type === 'MultiLineString') {
           // MultiLineString : le coût du tronçon est réparti au prorata de
           // la longueur de chaque sous-ligne (rare en BD Carto, sécurité).
           const longueurs = geom.coordinates.map(c => turf.length(turf.lineString(c), { units: 'kilometers' }));
           const totalKm = longueurs.reduce((a, b) => a + b, 0) || 1;
           geom.coordinates.forEach((c, i) => {
-            ajouterLigne(c, cout * (longueurs[i] / totalKm), numero, idxOriginal);
+            ajouterLigne(c, cout * (longueurs[i] / totalKm), numero, idxOriginal, longueurs[i]);
           });
         }
       });
@@ -641,18 +649,30 @@
     
     /* --- CALCUL DU COÛT PÉAGE PAR MATCHING GÉOMÉTRIQUE ---
        Pour chaque segment du tracé Valhalla, on cherche le tronçon payant le
-       plus proche dans la surcouche BD Carto. S'il est à moins de
-       TOLERANCE_MATCH_METRES, ce tronçon est marqué "traversé". Aucun coût
-       n'est calculé ici : chaque tronçon BD Carto porte déjà son propre
-       cout_troncon_eur (figé lors de la génération du geojson) - on se
-       contente de sommer les coûts des tronçons DISTINCTS traversés
-       (idTroncon dédupliqué, pour ne jamais compter deux fois un même
-       tronçon revisité par plusieurs points successifs du tracé). Aucun
-       match trouvé = segment gratuit (BD Carto fait foi). */
+       plus proche dans la surcouche BD Carto. On accumule la distance
+       RÉELLEMENT PARCOURUE en restant à moins de TOLERANCE_MATCH_METRES de
+       chaque tronçon - un seul point de croisement (pont, bretelle
+       parallèle sur quelques mètres) ne suffit plus à le facturer en
+       entier : il faut avoir suivi une distance minimale, pas juste frôlé
+       le tronçon à un instant donné. Aucun coût n'est calculé ici : chaque
+       tronçon BD Carto porte déjà son propre cout_troncon_eur (figé lors de
+       la génération du geojson). Aucun match retenu = segment gratuit
+       (BD Carto fait foi). */
+    function haversineKm(lat1, lon1, lat2, lon2) {
+      const R = 6371;
+      const toRad = d => d * Math.PI / 180;
+      const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    const SEUIL_MATCH_ABSOLU_KM = 0.1; // 100m minimum suivis pour retenir un grand tronçon
+    const SEUIL_MATCH_RATIO = 0.5;     // ou 50% de sa propre longueur si le tronçon est court
+
     function calculerCoutPeage(routeCoords) {
       if (!tollIndex) return { total: 0, detail: [], indexIndisponible: true };
 
-      const tronconsTraverses = new Map(); // idTroncon -> { numero, cout }
+      const kmSuivisParTroncon = new Map(); // idTroncon -> { numero, cout, longueurKm, kmSuivis }
 
       for (let i = 0; i < routeCoords.length - 1; i++) {
         const [lat1, lng1] = routeCoords[i];
@@ -662,22 +682,29 @@
         const troncon = tollLeProchePoint(midLat, midLng);
         if (!troncon) continue;
 
-        if (!tronconsTraverses.has(troncon.idTroncon)) {
-          tronconsTraverses.set(troncon.idTroncon, { numero: troncon.numero, cout: troncon.cout });
+        if (!kmSuivisParTroncon.has(troncon.idTroncon)) {
+          kmSuivisParTroncon.set(troncon.idTroncon, {
+            numero: troncon.numero, cout: troncon.cout,
+            longueurKm: troncon.longueurKm || 0, kmSuivis: 0
+          });
         }
+        kmSuivisParTroncon.get(troncon.idTroncon).kmSuivis += haversineKm(lat1, lng1, lat2, lng2);
       }
 
       let total = 0;
-      const parAutoroute = {}; // { "A6": { cout: 4.4, nbTroncons: 3 } }
-      tronconsTraverses.forEach(({ numero, cout }) => {
+      const parAutoroute = {}; // { "A6": { cout: 4.4, km: 23.1 } }
+      kmSuivisParTroncon.forEach(({ numero, cout, longueurKm, kmSuivis }) => {
+        const seuil = Math.min(SEUIL_MATCH_ABSOLU_KM, longueurKm * SEUIL_MATCH_RATIO);
+        if (kmSuivis < seuil) return; // simple croisement, pas réellement emprunté -> ignoré
+
         total += cout;
-        if (!parAutoroute[numero]) parAutoroute[numero] = { cout: 0, nbTroncons: 0 };
+        if (!parAutoroute[numero]) parAutoroute[numero] = { cout: 0, km: 0 };
         parAutoroute[numero].cout += cout;
-        parAutoroute[numero].nbTroncons += 1;
+        parAutoroute[numero].km += longueurKm;
       });
 
       const detail = Object.entries(parAutoroute)
-        .map(([numero, v]) => ({ numero, cout: v.cout, nbTroncons: v.nbTroncons }))
+        .map(([numero, v]) => ({ numero, cout: v.cout, km: v.km }))
         .sort((a, b) => b.cout - a.cout);
 
       return { total, detail };
@@ -694,6 +721,20 @@
       document.getElementById('speed-limit-select').value = value;
       document.querySelectorAll('#speed-segmented .segmented-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.speed === value);
+      });
+    }
+
+    // Préférence autoroutes : 3 états, cf. discussion sur use_highways/use_living_streets.
+    // - autoriser  : comportement par défaut de Valhalla, rien n'est envoyé
+    // - eviter     : use_highways à son minimum (évitement fort, courbe quadratique près de 0)
+    // - favoriser  : use_highways à son maximum + use_living_streets abaissé sous son défaut
+    //                (0.1 -> 0.0) pour un vrai effet, cf. discussion : envoyer 0.1 ne change
+    //                rien puisque c'est déjà la valeur par défaut de Valhalla pour l'auto.
+    let autoroutesPref = 'autoriser';
+    function setAutoroutesPref(value) {
+      autoroutesPref = value;
+      document.querySelectorAll('#highways-segmented .segmented-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.pref === value);
       });
     }
 
@@ -1408,6 +1449,12 @@
       const autoOptions = {};
       const speedVal = document.getElementById('speed-limit-select').value;
       if (speedVal !== 'none') autoOptions.top_speed = parseInt(speedVal, 10);
+      if (autoroutesPref === 'eviter') {
+        autoOptions.use_highways = 0.0;
+      } else if (autoroutesPref === 'favoriser') {
+        autoOptions.use_highways = 1.0;
+        autoOptions.use_living_streets = 0.0;
+      }
       if (document.getElementById('avoid-tolls-check').checked) {
         autoOptions.use_tolls = 0.0;
         autoOptions.toll_booth_penalty = 43200;
@@ -1461,9 +1508,10 @@
       const listDiv = document.getElementById('instructions-list');
 
       const peage = calculerCoutPeage(decodedRouteCoords);
+      const evitementActif = document.getElementById('avoid-tolls-check').checked;
       const peageValue = peage.indexIndisponible
         ? 'N/D'
-        : (peage.total > 0.01 ? `${Math.ceil(peage.total)} €` : 'Gratuit');
+        : (evitementActif ? 'Sans péage' : (peage.total > 0.01 ? `${Math.ceil(peage.total)} €` : 'Gratuit'));
 
       statsDiv.innerHTML = `
         <div class="stats-row">
@@ -1484,10 +1532,16 @@
 
       const detailEl = document.getElementById('route-peage-detail');
       if (peage.detail.length > 0) {
+        const noteResiduel = evitementActif
+          ? '⚠️ Résiduel malgré "Éviter les péages" (probablement en flux libre, non détectable par Valhalla) : '
+          : '';
         const detailStr = peage.detail
-          .map(d => `${d.numero === '?' ? 'segment non identifié' : d.numero}: ${d.nbTroncons} tronçon${d.nbTroncons > 1 ? 's' : ''} → ${formatSig2(d.cout)} €`)
+          .map(d => {
+            const coutParKm = d.km > 0 ? d.cout / d.km : 0;
+            return `${d.numero === '?' ? 'segment non identifié' : d.numero}: ${d.km.toFixed(1)} km à péage (${coutParKm.toFixed(2)} €/km) → ${formatSig2(d.cout)} €`;
+          })
           .join(' · ');
-        detailEl.textContent = detailStr;
+        detailEl.textContent = noteResiduel + detailStr;
         detailEl.style.display = 'block';
       } else {
         detailEl.textContent = '';
@@ -1518,7 +1572,7 @@
       // Barre résumée compacte : passe du prompt "Où allez-vous ?" au résultat du trajet
       const summaryText = document.getElementById('summaryText');
       summaryText.innerHTML = `${routeSummary.length.toFixed(1)} km · ${formatDuration(routeSummary.time)}` +
-        (peage.total > 0.01 ? ` · <span style="color:var(--accent)">${Math.ceil(peage.total)} €</span>` : '');
+        (!evitementActif && peage.total > 0.01 ? ` · <span style="color:var(--accent)">${Math.ceil(peage.total)} €</span>` : '');
 
       // Le résultat prime : on repasse en position milieu (résultats + carte visibles) et on amène les résultats en vue
       if (sheetState === 'low' || sheetState === 'high') setSheetState('mid');
