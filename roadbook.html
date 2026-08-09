@@ -242,7 +242,7 @@
 
     <div class="sheet-pinned" id="sheetPinned">
       <div class="header-controls">
-        <input type='number' id='kmInput' class='input-field' value="0.0" step="0.1" oninput='onKmInputChange()' max="9999">
+        <input type='number' id='kmInput' class='input-field' value="0" step="1" oninput='onKmInputChange()' max="9999">
         <button id="btnToggleMode" class="mode-switch-btn" onclick="toggleViewMode()" title="Passer à la feuille de route">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg>
           <span id="btnToggleModeLabel">Stations</span>
@@ -441,6 +441,7 @@ document.addEventListener('pointerup', () => {
 window.addEventListener('resize', () => setSheetState(sheetState));
 
 let map, gpxLineFuture, gpxLinePast, userMarker, watchId = null, isAutoTrack = false, isSimulating = false, simInterval = null;
+let currentArrowRotation = 0; // cumulatif (peut dépasser 0-360) pour que la transition CSS tourne toujours du bon côté
 let navDisplayMode = 'CLOSE';
 let gpxPoints = [], globalData = [], roadbookManeuvers = [], markers = {};
 let lastValidLat = null, lastValidLng = null;
@@ -841,6 +842,15 @@ function initMap() {
             b4.title = "Simuler le trajet sur la trace";
             b4.onclick = (e) => { e.stopPropagation(); toggleSimulation(); };
 
+            let b5 = L.DomUtil.create('a', 'brouter-ctrl-btn', container);
+            b5.id = 'simSpeedBtn';
+            b5.textContent = simSpeedMultiplier + '×';
+            b5.title = "Vitesse de simulation (appui pour changer)";
+            b5.style.display = 'none';
+            b5.style.fontWeight = '700';
+            b5.style.fontSize = '12px';
+            b5.onclick = (e) => { e.stopPropagation(); cycleSimSpeed(); };
+
             return container;
         }
     });
@@ -915,7 +925,7 @@ function getSinglePosition() {
     log("GPS", "Acquisition d'une position GPS ponctuelle...");
     navigator.geolocation.getCurrentPosition(
         pos => {
-            updatePosition(pos.coords.latitude, pos.coords.longitude, pos.coords.heading);
+            updatePosition(pos.coords.latitude, pos.coords.longitude, pos.coords.heading, pos.coords.speed);
             map.setView([pos.coords.latitude, pos.coords.longitude], NAV_CLOSE_ZOOM);
             log("GPS", "Position ponctuelle acquise avec succès.");
         },
@@ -939,9 +949,9 @@ function toggleAutoTrack() {
         requestWakeLock();
         if(navigator.geolocation) {
             watchId = navigator.geolocation.watchPosition(
-                pos => updatePosition(pos.coords.latitude, pos.coords.longitude, pos.coords.heading),
+                pos => updatePosition(pos.coords.latitude, pos.coords.longitude, pos.coords.heading, pos.coords.speed),
                 err => log("GPS", "Erreur : " + err.message, true),
-                { enableHighAccuracy: true, maximumAge: 3000 }
+                { enableHighAccuracy: true, maximumAge: 0 }
             );
             log("GPS", "Suivi live activé.");
         }
@@ -954,10 +964,23 @@ function toggleAutoTrack() {
     }
 }
 
+// Multiplicateur de vitesse de simulation : appliqué à la distance parcourue par tick
+// (le tick lui-même reste fixe) pour garder une cadence de rendu stable quel que soit le multiplicateur.
+let simSpeedMultiplier = 1;
+const SIM_SPEED_LEVELS = [1, 2, 3, 5];
+
+function cycleSimSpeed() {
+    const idx = SIM_SPEED_LEVELS.indexOf(simSpeedMultiplier);
+    simSpeedMultiplier = SIM_SPEED_LEVELS[(idx + 1) % SIM_SPEED_LEVELS.length];
+    const btn = document.getElementById('simSpeedBtn');
+    if (btn) btn.textContent = simSpeedMultiplier + '×';
+}
+
 function toggleSimulation() {
     if(isAutoTrack) toggleAutoTrack();
     isSimulating = !isSimulating;
     const btn = document.getElementById('simTrackBtn');
+    const speedBtn = document.getElementById('simSpeedBtn');
     
     if(isSimulating) {
         if(gpxPoints.length === 0) {
@@ -966,6 +989,7 @@ function toggleSimulation() {
             return;
         }
         btn.classList.add('active-track');
+        if (speedBtn) { speedBtn.style.display = ''; speedBtn.textContent = simSpeedMultiplier + '×'; }
         navDisplayMode = 'CLOSE';
 
         if (gpxPoints.length > 0) {
@@ -974,21 +998,26 @@ function toggleSimulation() {
 
         requestWakeLock();
         log("SIM", "Démarrage de la simulation de trajet...");
-        let index = 0;
+        const SIM_SPEED_KMH = 110; // vitesse de référence pour le multiplicateur 1×
+        const TICK_MS = 300;
+        const kmPerTickBase = (SIM_SPEED_KMH / 3600) * (TICK_MS / 1000);
+        const traceEndKm = gpxPoints[gpxPoints.length - 1].km;
+        let simKm = 0, cursor = 0;
         simInterval = setInterval(() => {
-            if(index >= gpxPoints.length) {
+            simKm += kmPerTickBase * simSpeedMultiplier; // relit le multiplicateur à chaque tick : effet immédiat sans relancer le timer
+            if (simKm >= traceEndKm) {
                 toggleSimulation();
                 log("SIM", "Simulation terminée (fin du tracé).");
                 return;
             }
-            let pt = gpxPoints[index];
-            let nextPt = gpxPoints[index + 1] || pt;
-            let heading = Math.atan2(nextPt.lon - pt.lon, nextPt.lat - pt.lat) * (180 / Math.PI);
-            updatePosition(pt.lat, pt.lon, heading);
-            index += Math.max(1, Math.floor(gpxPoints.length / 300));
-        }, 300);
+            while (cursor < gpxPoints.length - 1 && gpxPoints[cursor].km < simKm) cursor++;
+            let pt = gpxPoints[cursor];
+            // Cap dérivé automatiquement de la géométrie du tracé par updatePosition (on est toujours dessus en simulation)
+            updatePosition(pt.lat, pt.lon, null, null);
+        }, TICK_MS);
     } else {
         btn.classList.remove('active-track');
+        if (speedBtn) speedBtn.style.display = 'none';
         releaseWakeLock();
         if(simInterval) clearInterval(simInterval);
         log("SIM", "Simulation arrêtée.");
@@ -1016,7 +1045,41 @@ function updateTraceDisplay(currentKm) {
     if(gpxLineFuture) gpxLineFuture.setLatLngs(futurePoints);
 }
 
-function updatePosition(lat, lng, heading) {
+// Delta angulaire signé le plus court entre deux caps (évite qu'une transition CSS
+// tourne "dans le mauvais sens" en passant par 0°/360°, ex. 350° -> 10°).
+function shortestAngleDelta(fromDeg, toDeg) {
+    let diff = (toDeg - fromDeg) % 360;
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+    return diff;
+}
+
+// Applique une nouvelle orientation à la flèche en tournant toujours du côté le plus
+// court (rotation cumulative, peut dépasser 0-360) ; la transition CSS fait le reste.
+function setArrowRotation(headingDeg) {
+    const target = ((headingDeg % 360) + 360) % 360;
+    const current = ((currentArrowRotation % 360) + 360) % 360;
+    currentArrowRotation += shortestAngleDelta(current, target);
+    const arrow = userMarker && userMarker.getElement() ? userMarker.getElement().querySelector('.user-loc-arrow') : null;
+    if (arrow) arrow.style.transform = `rotate(${currentArrowRotation}deg)`;
+}
+
+// Cap local déduit de la géométrie du tracé autour de l'index donné (moyenne sur une
+// petite fenêtre avant/après) : bien plus stable qu'un cap GPS instantané, puisqu'il
+// repose sur une géométrie fixe plutôt que sur des positions bruitées.
+function getRouteHeadingAt(index) {
+    if (gpxPoints.length < 2) return null;
+    const aheadIdx = Math.min(index + 5, gpxPoints.length - 1);
+    const behindIdx = Math.max(index - 5, 0);
+    if (aheadIdx === behindIdx) return null;
+    const p1 = gpxPoints[behindIdx], p2 = gpxPoints[aheadIdx];
+    return Math.atan2(p2.lon - p1.lon, p2.lat - p1.lat) * (180 / Math.PI);
+}
+
+const ON_TRACK_KM = 0.05;           // 50 m : distance sous laquelle on considère être "sur" le tracé
+const MIN_SPEED_FOR_GPS_HEADING = 1; // m/s : sous ce seuil, le cap GPS brut n'est pas fiable -> on ne le suit pas
+
+function updatePosition(lat, lng, heading, speedMps) {
     if (!isSimulating && lastValidLat !== null && lastValidLng !== null) {
         let distanceMetres = distanceHaversine(lastValidLat, lastValidLng, lat, lng) * 1000;
         if (distanceMetres < 10) return;
@@ -1029,32 +1092,42 @@ function updatePosition(lat, lng, heading) {
         if (navDisplayMode === 'OVERVIEW') {
             applyNavBounds(lat, lng);
         } else {
-            map.panTo([lat, lng], {animate: true, duration: 0.3});
+            map.panTo([lat, lng], {animate: true, duration: 0.8});
         }
     } else {
-        map.panTo([lat, lng], {animate: true, duration: 0.3});
-    }
-    
-    let h = heading || 0;
-    let svg = `<div style="width:32px;height:32px;"><svg class="user-loc-arrow" style="transform: rotate(${h}deg);" viewBox="0 0 24 24"><path fill="#0B72E7" stroke="#ffffff" stroke-width="2" d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg></div>`;
-    
-    if(userMarker) {
-        userMarker.setLatLng([lat, lng]);
-        let arrow = userMarker.getElement().querySelector('.user-loc-arrow');
-        if(arrow) arrow.style.transform = `rotate(${h}deg)`;
-    } else {
-        userMarker = L.marker([lat, lng], {icon: L.divIcon({html: svg, iconSize:[32,32], iconAnchor:[16,16], className: 'user-loc-icon'})}).addTo(map);
+        map.panTo([lat, lng], {animate: true, duration: 0.8});
     }
 
-    if(gpxPoints.length > 0) {
-        let minDist = Infinity, bestKm = 0;
-        for(let pt of gpxPoints) {
-            let d = distanceHaversine(lat, lng, pt.lat, pt.lon);
-            if(d < minDist) { minDist = d; bestKm = pt.km; }
+    // Point le plus proche sur le tracé : calculé une seule fois, réutilisé pour le cap et le km affiché.
+    let bestIdx = -1, minDist = Infinity, bestKm = 0;
+    if (gpxPoints.length > 0) {
+        for (let i = 0; i < gpxPoints.length; i++) {
+            const d = distanceHaversine(lat, lng, gpxPoints[i].lat, gpxPoints[i].lon);
+            if (d < minDist) { minDist = d; bestKm = gpxPoints[i].km; bestIdx = i; }
         }
-        document.getElementById('kmInput').value = bestKm.toFixed(1);
+    }
+
+    // Cap : géométrie du tracé si on est dessus (stable), sinon cap GPS brut si la vitesse
+    // le rend fiable ; sinon on ne touche pas à la flèche (on garde le dernier cap connu).
+    let newHeading = (bestIdx !== -1 && minDist <= ON_TRACK_KM) ? getRouteHeadingAt(bestIdx) : null;
+    if (newHeading === null && heading !== null && heading !== undefined && !isNaN(heading)) {
+        if (speedMps === null || speedMps === undefined || speedMps >= MIN_SPEED_FOR_GPS_HEADING) {
+            newHeading = heading;
+        }
+    }
+
+    if (userMarker) {
+        userMarker.setLatLng([lat, lng]);
+    } else {
+        const svg = `<div style="width:32px;height:32px;"><svg class="user-loc-arrow" viewBox="0 0 24 24"><path fill="#0B72E7" stroke="#ffffff" stroke-width="2" d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg></div>`;
+        userMarker = L.marker([lat, lng], {icon: L.divIcon({html: svg, iconSize:[32,32], iconAnchor:[16,16], className: 'user-loc-icon'})}).addTo(map);
+    }
+    if (newHeading !== null) setArrowRotation(newHeading);
+
+    if (bestIdx !== -1) {
+        document.getElementById('kmInput').value = Math.round(bestKm);
         updateTraceDisplay(bestKm);
-        renderList();
+        renderList(bestKm); // position précise (non arrondie) pour les tuiles, indépendamment de l'affichage du champ km
     }
 }
 
@@ -1656,8 +1729,8 @@ function maneuverIconImg(type) {
          + `<img class="icon-dark-theme" src="icons/light/${file}" alt=""${mirrorStyle}>`;
 }
 
-function renderList() {
-    const kmFilter = parseFloat(document.getElementById('kmInput').value) || 0;
+function renderList(kmOverride) {
+    const kmFilter = (typeof kmOverride === 'number' && !isNaN(kmOverride)) ? kmOverride : (parseFloat(document.getElementById('kmInput').value) || 0);
     
     if (currentViewMode === 'ROADBOOK') {
         renderRoadbookList(kmFilter);
@@ -1668,6 +1741,14 @@ function renderList() {
     // La position basse dévoile la prochaine carte (station ou instruction) :
     // si son contenu vient de changer de hauteur, on réajuste tout de suite.
     if (sheetState === 'low') setSheetState('low');
+}
+
+// Affiche en mètres sous 1 km (arrondi à 50m : une précision GPS/route-matching plus
+// fine serait trompeuse et ferait "trembler" le chiffre), en km au dixième au-delà.
+function formatManeuverDistance(km) {
+    const clamped = Math.max(0, km);
+    if (clamped < 1) return { val: Math.round(clamped * 1000 / 50) * 50, unit: 'm' };
+    return { val: clamped.toFixed(1), unit: 'km' };
 }
 
 function renderRoadbookList(kmFilter) {
@@ -1697,13 +1778,14 @@ function renderRoadbookList(kmFilter) {
         else if (distToNext <= 1) urgency = 'roadbook-mid';
 
         const cardClass = isNext ? `roadbook-next ${urgency}` : 'roadbook-later';
+        const d = formatManeuverDistance(distToNext);
 
         html += `
         <div class='station-card ${cardClass}' onclick="if(${m.lat}){ map.setView([${m.lat}, ${m.lon}], 16); }">
           <div class='station-main'>
             <div class='nav-block nav-block-maneuver'>
               <div class='maneuver-icon'>${maneuverIconImg(m.type)}</div>
-              <div class='pk-val-wrap'><span class='pk-val'>${distToNext.toFixed(1)}</span><span class='pk-unit'>km</span></div>
+              <div class='pk-val-wrap'><span class='pk-val'>${d.val}</span><span class='pk-unit'>${d.unit}</span></div>
             </div>
             <div class='info-block'>
               <div class='op-title' style='color: var(--text);'>${m.instruction}</div>
