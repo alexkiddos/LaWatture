@@ -322,7 +322,7 @@
 
     .log-panel {
       display: none;
-      position: fixed; inset: 0; z-index: 500;
+      position: fixed; inset: 0; z-index: 2000;
       background: #0d1117; color: #8ee08e;
       flex-direction: column;
       font-family: 'JetBrains Mono', 'Courier New', monospace;
@@ -801,8 +801,36 @@
       return null;
     }
 
-    async function extraireSegmentsPeageTraceAttributes(routeCoords) {
+    function haversineMetres(lat1, lon1, lat2, lon2) {
+      const R = 6371000;
+      const toRad = d => d * Math.PI / 180;
+      const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    // Réduit le nombre de points envoyés à trace_attributes : on n'a besoin
+    // que des transitions payant/gratuit, pas d'une précision au mètre -
+    // un point tous les ~150m suffit largement et allège beaucoup le calcul
+    // de map-matching côté serveur sur un long trajet.
+    const DISTANCE_MIN_SOUS_ECHANTILLON_M = 150;
+    function sousEchantillonner(coords) {
+      if (coords.length <= 2) return coords;
+      const reduit = [coords[0]];
+      let dernier = coords[0];
+      for (let i = 1; i < coords.length - 1; i++) {
+        if (haversineMetres(dernier[0], dernier[1], coords[i][0], coords[i][1]) >= DISTANCE_MIN_SOUS_ECHANTILLON_M) {
+          reduit.push(coords[i]);
+          dernier = coords[i];
+        }
+      }
+      reduit.push(coords[coords.length - 1]); // toujours garder le point final
+      return reduit;
+    }
+
+    async function extraireSegmentsPeageTraceAttributes(routeCoordsComplet) {
       const t0 = performance.now();
+      const routeCoords = sousEchantillonner(routeCoordsComplet);
       const shape = routeCoords.map(([lat, lon]) => ({ lat, lon }));
 
       const body = {
@@ -812,18 +840,29 @@
         filters: { attributes: ['edge.toll', 'edge.length', 'edge.names', 'matched.point', 'matched.edge_index', 'matched.type'], action: 'include' }
       };
 
-      const response = await fetch(`${VALHALLA_BASE_URL}/trace_attributes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      let response;
+      try {
+        response = await fetch(`${VALHALLA_BASE_URL}/trace_attributes`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal
+        });
+      } catch (err) {
+        if (err.name === 'AbortError') throw new Error('délai dépassé (6s), serveur probablement surchargé');
+        throw err;
+      } finally {
+        clearTimeout(timeoutId);
+      }
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Échec de trace_attributes');
 
       const edges = data.edges || [];
       const matchedPoints = data.matched_points || [];
       const nbPayantes = edges.filter(e => e.toll).length;
-      log('PEAGE', `trace_attributes : ${edges.length} arêtes (${nbPayantes} payantes), ${matchedPoints.length} points appariés, en ${Math.round(performance.now() - t0)} ms.`);
+      log('PEAGE', `trace_attributes : ${routeCoords.length}/${routeCoordsComplet.length} points envoyés (sous-échantillonné), ${edges.length} arêtes (${nbPayantes} payantes), ${matchedPoints.length} points appariés, en ${Math.round(performance.now() - t0)} ms.`);
 
       // Deux structures séparées : "segments" (coordonnées pures [lat,lng],
       // pour le dessin - Leaflet interprète un 3e élément d'un tableau comme
@@ -1200,6 +1239,7 @@
     let decodedRouteCoords = [];
     let routeSummary = null;
     let routeLegs = [];
+    let presomptionPeage = false; // présomption d'après le champ toll des manœuvres, cf. calculateRoute
     let rawValhallaResponse = null;
 
     function closeAllSuggestions() {
@@ -1698,21 +1738,12 @@
 
         log('ROUTE', `Réponse Valhalla reçue en ${Math.round(performance.now() - t0)} ms (${(data.trip.summary.length).toFixed(1)} km).`);
 
-        // --- DIAGNOSTIC TEMPORAIRE : le champ "toll" existe-t-il vraiment
-        // dans la réponse de Stadia Maps, et sur quelles manœuvres ? ---
-        let manoeuvresAvecToll = [];
-        data.trip.legs.forEach((leg, legIdx) => {
-          leg.maneuvers.forEach((mvr, mvrIdx) => {
-            if (mvr.toll === true) {
-              manoeuvresAvecToll.push(`leg${legIdx}/mvr${mvrIdx}: "${mvr.instruction}" (${(mvr.street_names || []).join(', ') || 'sans nom'})`);
-            }
-          });
-        });
-        if (manoeuvresAvecToll.length > 0) {
-          log('DIAGNOSTIC', `✓ Champ "toll" trouvé sur ${manoeuvresAvecToll.length} manœuvre(s) :\n` + manoeuvresAvecToll.join('\n'));
-        } else {
-          log('DIAGNOSTIC', `✗ Aucune manœuvre avec "toll":true trouvée sur ce trajet (${data.trip.legs.reduce((n, l) => n + l.maneuvers.length, 0)} manœuvres au total).`, true);
-        }
+        // Pré-filtre : présomption de péage basée sur le champ toll des
+        // manœuvres (imprécis sur l'étendue exacte, mais fiable pour dire
+        // "il y en a au moins un quelque part") - évite d'appeler
+        // trace_attributes (coûteux côté serveur) sur un trajet 100% gratuit.
+        presomptionPeage = data.trip.legs.some(leg => leg.maneuvers.some(mvr => mvr.toll === true));
+        log('PEAGE', presomptionPeage ? 'Présomption de péage détectée (au moins une manœuvre toll:true).' : 'Aucune présomption de péage - trace_attributes sera sauté.');
 
         rawValhallaResponse = data;
         await processValhallaResponse(data);
@@ -1746,59 +1777,22 @@
       log('PEAGE', tollIndex ? 'Surcouche déjà prête, calcul du péage immédiat.' : 'Attente de la surcouche péages avant affichage...');
       await ensureTollDataLoaded();
       log('PEAGE', tollIndex ? 'Index péage disponible, calcul en cours.' : 'Index péage TOUJOURS indisponible après attente (voir erreur ci-dessus).', !tollIndex);
-      await displayInstructions();
+      displayInstructions(); // pas d'await : la Phase A (immédiate) suffit ici, la Phase B (péage) continue en tâche de fond
     }
 
     async function displayInstructions() {
       const summaryDiv = document.getElementById('route-summary');
       const statsDiv = document.getElementById('route-stats');
       const listDiv = document.getElementById('instructions-list');
+      const detailEl = document.getElementById('route-peage-detail');
 
       const evitementActif = document.getElementById('avoid-tolls-check').checked;
 
-      // 1. Détection des portions réellement payantes, directement depuis
-      // Valhalla (trace_attributes, edge par edge - plus fiable que
-      // l'ancien matching géométrique BD Carto, qui confondait parfois un
-      // simple croisement/bretelle avec un vrai passage).
-      let segmentsPeage, pointsPayants;
-      try {
-        ({ segments: segmentsPeage, pointsPayants } = await extraireSegmentsPeageTraceAttributes(decodedRouteCoords));
-      } catch (err) {
-        log('PEAGE', `trace_attributes indisponible (${err.message}), repli sur l'approximation par manœuvre.`, true);
-        ({ segments: segmentsPeage, pointsPayants } = extraireSegmentsPeageValhalla(routeLegs));
-      }
-
-      // 2. BD Carto n'intervient plus qu'ici, pour retrouver le tarif des
-      // points déjà confirmés payants ci-dessus, en vérifiant au passage que
-      // le nom de route donné par Valhalla correspond bien au tronçon BD
-      // Carto le plus proche (évite d'accrocher une autoroute voisine lors
-      // d'un croisement/échangeur).
-      const peage = calculerCoutPeage(pointsPayants);
-      const peageValue = peage.indexIndisponible
-        ? 'N/D'
-        : (evitementActif ? 'Sans péage' : (peage.total > 0.01 ? `${Math.ceil(peage.total)} €` : 'Gratuit'));
-
-      // 3. Coloration magenta : les mêmes segments géométriques utilisés
-      // pour repérer les points du coût ci-dessus - garantit que ce qui est
-      // affiché en couleur et ce qui est compté dans le total proviennent
-      // de la même détection Valhalla (avant : deux calculs indépendants
-      // qui pouvaient diverger).
-      // Une seule polyline multi-segments mise à jour via setLatLngs, même
-      // principe que gpxLinePast/gpxLineFuture dans Roadbook VE.
-      if (!evitementActif && segmentsPeage.length > 0) {
-        peageHighlightLayer.setLatLngs(segmentsPeage);
-        // Retrait puis réajout systématique : routeLayer est recréé de zéro à
-        // chaque recalcul (donc toujours réinséré tout en haut), alors qu'un
-        // simple .addTo(map) sur une couche déjà présente ne la déplace pas -
-        // sans ça, dès un 2e calcul (ex: après ajout d'une étape), la
-        // surbrillance resterait sous le nouveau tracé bleu.
-        map.removeLayer(peageHighlightLayer);
-        peageHighlightLayer.addTo(map);
-      } else {
-        peageHighlightLayer.setLatLngs([]);
-        map.removeLayer(peageHighlightLayer);
-      }
-
+      // --- PHASE A : affichage immédiat, ne dépend d'aucun appel réseau
+      // supplémentaire (trace_attributes peut prendre plusieurs secondes sur
+      // un long trajet - pas de raison de faire attendre distance/durée/
+      // instructions, qui sont déjà connues à ce stade). ---
+      const peageInitial = !presomptionPeage ? (evitementActif ? 'Sans péage' : 'Gratuit') : '…';
       statsDiv.innerHTML = `
         <div class="stats-row">
           <div class="stat-block">
@@ -1811,32 +1805,17 @@
           </div>
           <div class="stat-block stat-toll">
             <div class="stat-label">Péage</div>
-            <div class="stat-value">${peageValue}</div>
+            <div class="stat-value" id="peage-stat-value">${peageInitial}</div>
           </div>
         </div>
       `;
 
-      const detailEl = document.getElementById('route-peage-detail');
-      if (peage.detail.length > 0) {
-        const noteResiduel = evitementActif
-          ? '⚠️ Résiduel malgré "Éviter les péages" (probablement en flux libre, non détectable par Valhalla) : '
-          : '';
-        const detailStr = peage.detail
-          .map(d => {
-            const coutParKm = d.km > 0 ? d.cout / d.km : 0;
-            return `${d.numero === '?' ? 'segment non identifié' : d.numero} : ${d.km.toFixed(1)} km à ${coutParKm.toFixed(2)}€/km : ${formatSig2(d.cout)}€`;
-          })
-          .join(' · ');
-        detailEl.textContent = noteResiduel + detailStr;
-        detailEl.style.display = 'block';
-      } else {
-        detailEl.textContent = '';
-        detailEl.style.display = 'none';
-      }
+      detailEl.textContent = '';
+      detailEl.style.display = 'none';
+      peageHighlightLayer.setLatLngs([]);
+      map.removeLayer(peageHighlightLayer);
 
       listDiv.innerHTML = '';
-
-      let cumulatedKm = 0;
       routeLegs.forEach((leg) => {
         leg.maneuvers.forEach((step) => {
           const item = document.createElement('div');
@@ -1849,20 +1828,81 @@
             <span class="step-dist">${distStr}</span>
           `;
           listDiv.appendChild(item);
-          cumulatedKm += step.length;
         });
       });
 
       summaryDiv.style.display = 'block';
-
-      // Barre résumée compacte : passe du prompt "Où allez-vous ?" au résultat du trajet
       const summaryText = document.getElementById('summaryText');
-      summaryText.innerHTML = `${routeSummary.length.toFixed(1)} km · ${formatDuration(routeSummary.time)}` +
-        (!evitementActif && peage.total > 0.01 ? ` · <span style="color:var(--accent)">${Math.ceil(peage.total)} €</span>` : '');
+      summaryText.innerHTML = `${routeSummary.length.toFixed(1)} km · ${formatDuration(routeSummary.time)}`;
 
       // Le résultat prime : on repasse en position milieu (résultats + carte visibles) et on amène les résultats en vue
       if (sheetState === 'low' || sheetState === 'high') setSheetState('mid');
       setTimeout(() => summaryDiv.scrollIntoView({ block: 'start', behavior: 'smooth' }), 150);
+
+      // --- PHASE B : péage, en tâche de fond. Sautée entièrement si aucune
+      // présomption (trajet 100% gratuit selon Valhalla) - inutile de
+      // solliciter trace_attributes pour rien. ---
+      if (!presomptionPeage) {
+        log('PEAGE', 'Aucune présomption de péage sur ce trajet, trace_attributes sauté.');
+        return;
+      }
+
+      let segmentsPeage, pointsPayants;
+      try {
+        ({ segments: segmentsPeage, pointsPayants } = await extraireSegmentsPeageTraceAttributes(decodedRouteCoords));
+      } catch (err) {
+        log('PEAGE', `trace_attributes indisponible (${err.message}), repli sur l'approximation par manœuvre.`, true);
+        ({ segments: segmentsPeage, pointsPayants } = extraireSegmentsPeageValhalla(routeLegs));
+      }
+
+      // BD Carto n'intervient qu'ici, pour retrouver le tarif des points déjà
+      // confirmés payants ci-dessus, en vérifiant au passage que le nom de
+      // route donné par Valhalla correspond bien au tronçon BD Carto le plus
+      // proche (évite d'accrocher une autoroute voisine lors d'un
+      // croisement/échangeur).
+      const peage = calculerCoutPeage(pointsPayants);
+      const peageValue = peage.indexIndisponible
+        ? 'N/D'
+        : (evitementActif ? 'Sans péage' : (peage.total > 0.01 ? `${Math.ceil(peage.total)} €` : 'Gratuit'));
+
+      const peageStatEl = document.getElementById('peage-stat-value');
+      if (peageStatEl) peageStatEl.textContent = peageValue;
+
+      // Coloration magenta : les mêmes segments géométriques utilisés pour
+      // repérer les points du coût ci-dessus - garantit que ce qui est
+      // affiché en couleur et ce qui est compté dans le total proviennent
+      // de la même détection Valhalla.
+      // Une seule polyline multi-segments mise à jour via setLatLngs, même
+      // principe que gpxLinePast/gpxLineFuture dans Roadbook VE.
+      if (!evitementActif && segmentsPeage.length > 0) {
+        peageHighlightLayer.setLatLngs(segmentsPeage);
+        // Retrait puis réajout systématique : routeLayer est recréé de zéro à
+        // chaque recalcul (donc toujours réinséré tout en haut), alors qu'un
+        // simple .addTo(map) sur une couche déjà présente ne la déplace pas -
+        // sans ça, dès un 2e calcul (ex: après ajout d'une étape), la
+        // surbrillance resterait sous le nouveau tracé bleu.
+        map.removeLayer(peageHighlightLayer);
+        peageHighlightLayer.addTo(map);
+      }
+
+      if (peage.detail.length > 0) {
+        const noteResiduel = evitementActif
+          ? '⚠️ Résiduel malgré "Éviter les péages" (probablement en flux libre, non détectable par Valhalla) : '
+          : '';
+        const detailStr = peage.detail
+          .map(d => {
+            const coutParKm = d.km > 0 ? d.cout / d.km : 0;
+            return `${d.numero === '?' ? 'segment non identifié' : d.numero} : ${d.km.toFixed(1)} km à ${coutParKm.toFixed(2)}€/km : ${formatSig2(d.cout)}€`;
+          })
+          .join(' · ');
+        detailEl.textContent = noteResiduel + detailStr;
+        detailEl.style.display = 'block';
+      }
+
+      // Complète la barre résumée compacte avec le péage, une fois connu
+      if (!evitementActif && peage.total > 0.01) {
+        summaryText.innerHTML += ` · <span style="color:var(--accent)">${Math.ceil(peage.total)} €</span>`;
+      }
     }
 
     function importJSON(event) {
