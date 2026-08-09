@@ -309,6 +309,45 @@
     .btn-fixed { height: 50px; border-radius: 12px !important; padding: 0 !important; font-size: 0.92rem !important; flex: none; width: 100%; }
     .btn-send { background: #16a34a; color: white; display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-bottom: 4px; }
     #route-peage-detail { font-size: 0.72rem; color: var(--muted); margin: 6px 0 4px; display: none; }
+
+    /* --- Étiquettes des points sur la carte : bouton supprimer --- */
+    .pt-popup { display: flex; flex-direction: column; gap: 8px; min-width: 140px; }
+    .pt-popup b { font-family: 'Space Grotesk', sans-serif; font-size: 0.95rem; }
+    .pt-popup-del {
+      border: none; border-radius: 8px; background: #fee2e2; color: #dc2626;
+      font-family: 'Inter', sans-serif; font-weight: 600; font-size: 0.8rem;
+      padding: 9px 10px; cursor: pointer; width: 100%;
+    }
+    .pt-popup-del:active { background: #fecaca; }
+
+    .log-panel {
+      display: none;
+      position: fixed; inset: 0; z-index: 500;
+      background: #0d1117; color: #8ee08e;
+      flex-direction: column;
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+    }
+    .log-panel.show { display: flex; }
+    .log-panel-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 14px; padding-top: max(12px, env(safe-area-inset-top));
+      background: #161b22; color: #e6edf3; font-size: 0.82rem; font-weight: 600;
+      flex-shrink: 0;
+    }
+    .log-panel-btn {
+      background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 6px;
+      padding: 5px 10px; font-size: 0.72rem; cursor: pointer; font-family: inherit;
+    }
+    .log-panel-content {
+      flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      padding: 10px 14px 30px; font-size: 0.72rem; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+      user-select: text; -webkit-user-select: text;
+    }
+    .log-line { border-bottom: 1px dashed #21262d; padding: 3px 0; }
+    .log-line .log-time { color: #6e7681; }
+    .log-line .log-cat { color: #58a6ff; font-weight: 700; }
+    .log-line.log-err .log-cat { color: #f85149; }
+    .log-line.log-err { color: #ffa198; }
     .btn-send:hover { filter: brightness(1.05); }
 
     .summary-divider { height: 1px; background: var(--border); margin: 10px 0 12px; }
@@ -471,11 +510,27 @@
         <svg class="btn-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
         Importer
       </button>
+      <button class="btn btn-secondary" onclick="toggleLogPanel()" title="Journal des opérations">
+        <svg class="btn-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3h6l5 5v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4z"/><path d="M9 12h6M9 16h6M9 8h2"/></svg>
+        Logs
+      </button>
       <button class="btn btn-secondary" onclick="location.reload()" title="Remettre à zéro l'itinéraire">
         <svg class="btn-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12a9 9 0 1 1 3 6.7"/><path d="M3 21v-5h5"/></svg>
         RAZ
       </button>
       <input type="file" id="import-file" accept=".json" style="display:none;" onchange="importJSON(event)" />
+    </div>
+
+    <div id="logPanel" class="log-panel">
+      <div class="log-panel-header">
+        <span>Journal des opérations</span>
+        <div style="display:flex; gap:6px;">
+          <button class="log-panel-btn" onclick="copyLogs()" title="Copier">Copier</button>
+          <button class="log-panel-btn" onclick="clearLogs()" title="Vider">Vider</button>
+          <button class="log-panel-btn" onclick="toggleLogPanel()" title="Fermer">✕</button>
+        </div>
+      </div>
+      <div id="logContent" class="log-panel-content"></div>
     </div>
 
     <!-- Réglages avancés : repliés par défaut, ouverts via l'icône ⚙️ -->
@@ -495,13 +550,6 @@
         <button type="button" class="segmented-btn" data-speed="90" onclick="setSpeedLimit('90')">90</button>
       </div>
 
-      <div class="option-row-label" style="margin:12px 0 6px; font-size:0.78rem;">Autoroutes</div>
-      <div class="segmented" id="highways-segmented" role="group" aria-label="Préférence autoroutes">
-        <button type="button" class="segmented-btn active" data-pref="autoriser" onclick="setAutoroutesPref('autoriser')">Autoriser</button>
-        <button type="button" class="segmented-btn" data-pref="eviter" onclick="setAutoroutesPref('eviter')">Éviter</button>
-        <button type="button" class="segmented-btn" data-pref="favoriser" onclick="setAutoroutesPref('favoriser')">Favoriser</button>
-      </div>
-
       <label class="option-row" style="margin-top:8px;">
         <span class="option-row-label">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 17h16M6 17V9l6-4 6 4v8"/></svg>
@@ -509,6 +557,17 @@
         </span>
         <span class="switch">
           <input type="checkbox" id="avoid-tolls-check" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+        </span>
+      </label>
+
+      <label class="option-row" style="margin-top:8px;">
+        <span class="option-row-label">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20 10 4h4l6 16M7 15h10"/></svg>
+          Éviter les grands axes
+        </span>
+        <span class="switch">
+          <input type="checkbox" id="avoid-highways-check" />
           <span class="switch-track"><span class="switch-thumb"></span></span>
         </span>
       </label>
@@ -536,7 +595,35 @@
   </div>
 
   <script>
-    const STADIA_API_KEY = "bfd69906-9c31-4162-bfcc-f5fc463c4116";
+    /* ===================== JOURNAL DES OPÉRATIONS ===================== */
+    const logEntries = [];
+    function log(cat, message, isError) {
+      const time = new Date().toLocaleTimeString('fr-FR', { hour12: false });
+      logEntries.push({ time, cat, message, isError: !!isError });
+      const el = document.getElementById('logContent');
+      if (el) {
+        const line = document.createElement('div');
+        line.className = 'log-line' + (isError ? ' log-err' : '');
+        line.innerHTML = `<span class="log-time">${time}</span> <span class="log-cat">[${cat}]</span> ${message.replace(/</g, '&lt;')}`;
+        el.appendChild(line);
+        el.scrollTop = el.scrollHeight;
+      }
+      if (isError) console.error(`[${cat}]`, message); else console.log(`[${cat}]`, message);
+    }
+    function toggleLogPanel() {
+      document.getElementById('logPanel').classList.toggle('show');
+    }
+    function clearLogs() {
+      logEntries.length = 0;
+      document.getElementById('logContent').innerHTML = '';
+      log('LOG', 'Journal vidé.');
+    }
+    function copyLogs() {
+      const text = logEntries.map(e => `${e.time} [${e.cat}] ${e.message}`).join('\n');
+      navigator.clipboard.writeText(text).then(() => log('LOG', 'Journal copié dans le presse-papier.'));
+    }
+
+    const VALHALLA_BASE_URL = "https://api.lawatture.fr";
 
     let currentGeocoder = 'photon';
     let ignoreNextMapClick = false;
@@ -592,28 +679,38 @@
         }
       }
 
+      let ignores = 0;
+
       geoData.features.forEach((feature, idxOriginal) => {
         const props = feature.properties || {};
         const cout = (props.cout_troncon_eur != null) ? props.cout_troncon_eur : 0;
         const numero = props.numero || props.autoroute || '?';
         const geom = feature.geometry;
-        if (!geom) return;
+        if (!geom) { ignores++; return; }
 
         if (geom.type === 'LineString') {
+          if (!geom.coordinates || geom.coordinates.length < 2) { ignores++; return; }
           const longueurKm = turf.length(turf.lineString(geom.coordinates), { units: 'kilometers' });
           ajouterLigne(geom.coordinates, cout, numero, idxOriginal, longueurKm);
         } else if (geom.type === 'MultiLineString') {
           // MultiLineString : le coût du tronçon est réparti au prorata de
           // la longueur de chaque sous-ligne (rare en BD Carto, sécurité).
-          const longueurs = geom.coordinates.map(c => turf.length(turf.lineString(c), { units: 'kilometers' }));
+          // On écarte les sous-lignes dégénérées (< 2 points) plutôt que de
+          // laisser turf planter sur toute la surcouche pour UN tronçon corrompu.
+          const sousLignesValides = (geom.coordinates || []).filter(c => c && c.length >= 2);
+          if (sousLignesValides.length === 0) { ignores++; return; }
+          const longueurs = sousLignesValides.map(c => turf.length(turf.lineString(c), { units: 'kilometers' }));
           const totalKm = longueurs.reduce((a, b) => a + b, 0) || 1;
-          geom.coordinates.forEach((c, i) => {
+          sousLignesValides.forEach((c, i) => {
             ajouterLigne(c, cout * (longueurs[i] / totalKm), numero, idxOriginal, longueurs[i]);
           });
+        } else {
+          ignores++;
         }
       });
 
-      console.log(`✓ Index péage construit : ${lines.length} tronçons`);
+      if (ignores > 0) log('PEAGE', `${ignores} tronçon(s) ignoré(s) (géométrie invalide ou vide dans le geojson).`, true);
+      log('PEAGE', `Index péage construit : ${lines.length} tronçons.`);
       return { lines, grid };
     }
 
@@ -657,22 +754,138 @@
        (idTroncon dédupliqué, pour ne jamais compter deux fois un même
        tronçon revisité par plusieurs points successifs du tracé). Aucun
        match trouvé = segment gratuit (BD Carto fait foi). */
-    function calculerCoutPeage(routeCoords) {
+    /* Le cross-check par nom d'autoroute (comparer aux street_names des
+       manœuvres) a été retiré : trace_attributes tranche déjà, edge par
+       edge, ce qui est réellement payant - BD Carto ne sert plus qu'à
+       retrouver le tarif des segments déjà confirmés payants, plus à les
+       détecter elle-même. */
+
+    /* --- COLORATION DES PORTIONS PAYANTES : approximation depuis les
+       manœuvres (imprécis - une manœuvre "toll:true" peut couvrir un long
+       tronçon en grande partie gratuit, ex. A75). Gardée uniquement comme
+       repli si l'appel trace_attributes ci-dessous échoue. */
+    function extraireSegmentsPeageValhalla(legs) {
+      const segments = [];
+      const pointsPayants = [];
+      (legs || []).forEach(leg => {
+        const legCoords = decodePolyline(leg.shape, 6); // [lat, lng], déjà au format Leaflet
+        leg.maneuvers.forEach(mvr => {
+          if (mvr.toll === true && mvr.begin_shape_index != null && mvr.end_shape_index != null) {
+            const portion = legCoords.slice(mvr.begin_shape_index, mvr.end_shape_index + 1);
+            segments.push(portion);
+            const numero = extraireNumeroAutoroute(mvr.street_names);
+            portion.forEach(([lat, lon]) => pointsPayants.push({ lat, lon, numero }));
+          }
+        });
+      });
+      return { segments, pointsPayants };
+    }
+
+    /* --- COLORATION PRÉCISE : trace_attributes, au tronçon (edge) près ---
+       Renvoie chaque arête du graphe routier réellement traversée, avec son
+       propre attribut toll:true/false individuel - contrairement au champ
+       toll d'une manœuvre (qui peut couvrir un long tronçon en grande
+       partie gratuit, ex. A75 hors viaduc de Millau), ici chaque arête est
+       évaluée séparément. On ne demande QUE edge.toll/length/names via
+       filters, pour garder la réponse légère malgré le grand nombre de
+       points sur un long trajet. shape_match:"map_snap" (pas "edge_walk",
+       plus rapide mais qui NE renvoie PAS matched_points - uniquement
+       documenté pour map_snap - or c'est cette corrélation point<->arête
+       dont on a besoin pour reconstruire les segments payants). */
+    const RE_NUMERO_AUTOROUTE = /^A\s?(\d{1,3})[a-zA-Z]?$/;
+    function extraireNumeroAutoroute(noms) {
+      for (const n of (noms || [])) {
+        const m = (n || '').trim().match(RE_NUMERO_AUTOROUTE);
+        if (m) return `A${m[1]}`;
+      }
+      return null;
+    }
+
+    async function extraireSegmentsPeageTraceAttributes(routeCoords) {
+      const t0 = performance.now();
+      const shape = routeCoords.map(([lat, lon]) => ({ lat, lon }));
+
+      const body = {
+        shape,
+        costing: 'auto',
+        shape_match: 'map_snap', // edge_walk ne renvoie pas matched_points (uniquement documenté pour map_snap) - un peu plus lent, mais nécessaire pour corréler points<->arêtes
+        filters: { attributes: ['edge.toll', 'edge.length', 'edge.names', 'matched.point', 'matched.edge_index', 'matched.type'], action: 'include' }
+      };
+
+      const response = await fetch(`${VALHALLA_BASE_URL}/trace_attributes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Échec de trace_attributes');
+
+      const edges = data.edges || [];
+      const matchedPoints = data.matched_points || [];
+      const nbPayantes = edges.filter(e => e.toll).length;
+      log('PEAGE', `trace_attributes : ${edges.length} arêtes (${nbPayantes} payantes), ${matchedPoints.length} points appariés, en ${Math.round(performance.now() - t0)} ms.`);
+
+      // Deux structures séparées : "segments" (coordonnées pures [lat,lng],
+      // pour le dessin - Leaflet interprète un 3e élément d'un tableau comme
+      // une altitude, donc pas question d'y glisser le nom de la route) et
+      // "pointsPayants" (avec le nom associé à chaque point, pour le
+      // croisement avec BD Carto dans calculerCoutPeage).
+      const segments = [];
+      const pointsPayants = [];
+      let segmentCourant = [];
+      matchedPoints.forEach(pt => {
+        const edge = (pt.edge_index != null) ? edges[pt.edge_index] : null;
+        if (edge && edge.toll) {
+          segmentCourant.push([pt.lat, pt.lon]);
+          pointsPayants.push({ lat: pt.lat, lon: pt.lon, numero: extraireNumeroAutoroute(edge.names) });
+        } else {
+          if (segmentCourant.length > 1) segments.push(segmentCourant);
+          segmentCourant = [];
+        }
+      });
+      if (segmentCourant.length > 1) segments.push(segmentCourant);
+
+      return { segments, pointsPayants };
+    }
+
+    /* BD Carto ne détecte plus rien elle-même : elle reçoit en entrée les
+       points DÉJÀ confirmés payants par trace_attributes (Valhalla), et se
+       contente d'aller chercher le tarif du tronçon le plus proche de
+       chaque point - fini les faux positifs de croisement/bretelle,
+       puisqu'on ne lui demande plus "est-ce payant ici ?" mais seulement
+       "combien ça coûte, sachant que c'est payant ?". En plus, si Valhalla
+       connaît le nom de la route à cet endroit (ex: "A6"), on vérifie qu'il
+       correspond bien au numéro du tronçon BD Carto le plus proche avant de
+       le retenir - évite d'accrocher par erreur le tronçon d'une autoroute
+       VOISINE mais différente (croisement, échangeur à proximité). */
+    function calculerCoutPeage(pointsPayants) {
       if (!tollIndex) return { total: 0, detail: [], indexIndisponible: true };
 
       const tronconsTraverses = new Map(); // idTroncon -> { numero, cout, km }
+      let ignoresPourNom = 0;
 
-      for (let i = 0; i < routeCoords.length - 1; i++) {
-        const [lat1, lng1] = routeCoords[i];
-        const [lat2, lng2] = routeCoords[i + 1];
-        const midLat = (lat1 + lat2) / 2, midLng = (lng1 + lng2) / 2;
+      for (let i = 0; i < pointsPayants.length - 1; i++) {
+        const p1 = pointsPayants[i], p2 = pointsPayants[i + 1];
+        const midLat = (p1.lat + p2.lat) / 2, midLng = (p1.lon + p2.lon) / 2;
 
         const troncon = tollLeProchePoint(midLat, midLng);
         if (!troncon) continue;
 
+        // Croisement nom Valhalla <-> numéro BD Carto : seulement si les
+        // deux sont identifiés (sinon on n'a rien à comparer, on accepte).
+        const nomAttendu = p1.numero || p2.numero;
+        if (nomAttendu && troncon.numero !== '?' && troncon.numero !== nomAttendu) {
+          ignoresPourNom++;
+          continue;
+        }
+
         if (!tronconsTraverses.has(troncon.idTroncon)) {
           tronconsTraverses.set(troncon.idTroncon, { numero: troncon.numero, cout: troncon.cout, km: troncon.longueurKm || 0 });
         }
+      }
+
+      if (ignoresPourNom > 0) {
+        log('PEAGE', `${ignoresPourNom} point(s) ignoré(s) : nom de route Valhalla ≠ numéro du tronçon BD Carto le plus proche (probable croisement d'autoroutes voisines).`);
       }
 
       let total = 0;
@@ -702,20 +915,6 @@
       document.getElementById('speed-limit-select').value = value;
       document.querySelectorAll('#speed-segmented .segmented-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.speed === value);
-      });
-    }
-
-    // Préférence autoroutes : 3 états, cf. discussion sur use_highways/use_living_streets.
-    // - autoriser  : comportement par défaut de Valhalla, rien n'est envoyé
-    // - eviter     : use_highways à son minimum (évitement fort, courbe quadratique près de 0)
-    // - favoriser  : use_highways à son maximum + use_living_streets abaissé sous son défaut
-    //                (0.1 -> 0.0) pour un vrai effet, cf. discussion : envoyer 0.1 ne change
-    //                rien puisque c'est déjà la valeur par défaut de Valhalla pour l'auto.
-    let autoroutesPref = 'autoriser';
-    function setAutoroutesPref(value) {
-      autoroutesPref = value;
-      document.querySelectorAll('#highways-segmented .segmented-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.pref === value);
       });
     }
 
@@ -874,18 +1073,22 @@
 
     function ensureTollDataLoaded() {
       if (tollDataLoadingPromise) return tollDataLoadingPromise;
+      const t0 = performance.now();
+      log('PEAGE', 'Chargement de la surcouche péages démarré...');
       tollDataLoadingPromise = fetch('./autoroutes_payantes_surcouche.geojson')
         .then(res => {
-          if (!res.ok) throw new Error("Fichier GeoJSON introuvable");
+          if (!res.ok) throw new Error("Fichier GeoJSON introuvable (HTTP " + res.status + ")");
           return res.json();
         })
         .then(geoData => {
           tollLayer.addData(geoData);
           tollIndex = buildTollIndex(geoData);
           tollDataLoaded = true;
+          const ms = Math.round(performance.now() - t0);
+          log('PEAGE', `Surcouche chargée : ${geoData.features.length} tronçons en ${ms} ms.`);
         })
         .catch(err => {
-          console.warn("Surcouche péages non chargée :", err);
+          log('PEAGE', `Échec du chargement de la surcouche péages : ${err.message}`, true);
           tollDataLoadingPromise = null; // permet de retenter plus tard
         });
       return tollDataLoadingPromise;
@@ -987,11 +1190,13 @@
     document.getElementById('opacity-slider').addEventListener('input', (e) => {
       routeOpacity = parseFloat(e.target.value);
       if (routeLayer) routeLayer.setStyle({ opacity: routeOpacity });
+      if (peageHighlightLayer) peageHighlightLayer.setStyle({ opacity: routeOpacity });
     });
 
     let routePoints = { start: null, end: null, vias: [] };
     let markers = [];
     let routeLayer = null;
+    let peageHighlightLayer = L.polyline([], { color: '#ff1493', weight: 7, opacity: routeOpacity }); // portions payantes réellement empruntées, en surbrillance sur le tracé (même principe que gpxLinePast dans Roadbook VE)
     let decodedRouteCoords = [];
     let routeSummary = null;
     let routeLegs = [];
@@ -1111,6 +1316,7 @@
             const latlng = L.latLng(position.coords.latitude, position.coords.longitude);
             const coordsString = `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`;
             setPoint('start', latlng, coordsString); // remplit visiblement le champ, pas de magie silencieuse
+            log('GEOLOC', `Départ auto-renseigné : ${coordsString}`);
             resolve(latlng);
           },
           (error) => {
@@ -1119,7 +1325,9 @@
               2: "Position indisponible. Renseignez un départ manuellement.",
               3: "La localisation a pris trop de temps. Renseignez un départ manuellement."
             };
-            reject(new Error(messages[error.code] || "Impossible de vous localiser. Renseignez un départ manuellement."));
+            const msg = messages[error.code] || "Impossible de vous localiser. Renseignez un départ manuellement.";
+            log('GEOLOC', `Échec (code ${error.code}) : ${msg}`, true);
+            reject(new Error(msg));
           },
           { enableHighAccuracy: true, timeout: 8000 }
         );
@@ -1266,7 +1474,9 @@
       markers = [];
 
       if (routePoints.start) {
-        const m = L.marker(routePoints.start, { icon: createPinIcon('D', '#2ecc71'), draggable: true }).addTo(map).bindPopup("Départ");
+        const m = L.marker(routePoints.start, { icon: createPinIcon('D', '#2ecc71'), draggable: true })
+          .addTo(map)
+          .bindPopup(`<div class="pt-popup"><b>Départ</b><button class="pt-popup-del" onclick="supprimerDepart()">🗑️ Supprimer ce point</button></div>`);
         m.on('dragend', function(e) {
           const latlng = e.target.getLatLng();
           const coordsStr = `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`;
@@ -1277,7 +1487,9 @@
 
       routePoints.vias.forEach((v, i) => {
         if (v) {
-          const m = L.marker(v, { icon: createPinIcon(i + 1, '#e67e22'), draggable: true }).addTo(map).bindPopup(`Étape N°${i + 1}`);
+          const m = L.marker(v, { icon: createPinIcon(i + 1, '#e67e22'), draggable: true })
+            .addTo(map)
+            .bindPopup(`<div class="pt-popup"><b>Étape N°${i + 1}</b><button class="pt-popup-del" onclick="supprimerEtapeDepuisCarte(${i})">🗑️ Supprimer ce point</button></div>`);
           m.on('dragend', function(e) {
             const latlng = e.target.getLatLng();
             routePoints.vias[i] = latlng;
@@ -1292,7 +1504,9 @@
       });
 
       if (routePoints.end) {
-        const m = L.marker(routePoints.end, { icon: createPinIcon('A', '#e74c3c'), draggable: true }).addTo(map).bindPopup("Arrivée");
+        const m = L.marker(routePoints.end, { icon: createPinIcon('A', '#e74c3c'), draggable: true })
+          .addTo(map)
+          .bindPopup(`<div class="pt-popup"><b>Arrivée</b><button class="pt-popup-del" onclick="supprimerArrivee()">🗑️ Supprimer ce point</button></div>`);
         m.on('dragend', function(e) {
           const latlng = e.target.getLatLng();
           const coordsStr = `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`;
@@ -1300,6 +1514,30 @@
         });
         markers.push(m);
       }
+    }
+
+    function supprimerDepart() {
+      map.closePopup();
+      routePoints.start = null;
+      document.getElementById('start-input').value = '';
+      toggleClearBtn('start-input', 'start-clear');
+      updateMarkers();
+      log('CARTE', 'Point de départ supprimé depuis la carte.');
+    }
+
+    function supprimerArrivee() {
+      map.closePopup();
+      routePoints.end = null;
+      document.getElementById('end-input').value = '';
+      toggleClearBtn('end-input', 'end-clear');
+      updateMarkers();
+      log('CARTE', "Point d'arrivée supprimé depuis la carte.");
+    }
+
+    function supprimerEtapeDepuisCarte(index) {
+      map.closePopup();
+      removeVia(index);
+      log('CARTE', `Étape N°${index + 1} supprimée depuis la carte.`);
     }
 
     function setupAutocomplete(inputEl, suggestionsEl, onSelect) {
@@ -1430,15 +1668,12 @@
       const autoOptions = {};
       const speedVal = document.getElementById('speed-limit-select').value;
       if (speedVal !== 'none') autoOptions.top_speed = parseInt(speedVal, 10);
-      if (autoroutesPref === 'eviter') {
-        autoOptions.use_highways = 0.0;
-      } else if (autoroutesPref === 'favoriser') {
-        autoOptions.use_highways = 1.0;
-        autoOptions.use_living_streets = 0.0;
-      }
       if (document.getElementById('avoid-tolls-check').checked) {
         autoOptions.use_tolls = 0.0;
         autoOptions.toll_booth_penalty = 43200;
+      }
+      if (document.getElementById('avoid-highways-check').checked) {
+        autoOptions.use_highways = 0.0;
       }
 
       const payload = {
@@ -1448,8 +1683,11 @@
         directions_options: { language: "fr-FR" }
       };
 
+      log('ROUTE', `Calcul demandé : ${locations.length} points, options=${JSON.stringify(autoOptions)}`);
+
       try {
-        const response = await fetch(`https://api.stadiamaps.com/route/v1?api_key=${STADIA_API_KEY}`, {
+        const t0 = performance.now();
+        const response = await fetch(`${VALHALLA_BASE_URL}/route`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -1458,16 +1696,35 @@
         const data = await response.json();
         if (!response.ok || !data.trip) throw new Error(data.status_message || "Impossible de calculer l'itinéraire.");
 
+        log('ROUTE', `Réponse Valhalla reçue en ${Math.round(performance.now() - t0)} ms (${(data.trip.summary.length).toFixed(1)} km).`);
+
+        // --- DIAGNOSTIC TEMPORAIRE : le champ "toll" existe-t-il vraiment
+        // dans la réponse de Stadia Maps, et sur quelles manœuvres ? ---
+        let manoeuvresAvecToll = [];
+        data.trip.legs.forEach((leg, legIdx) => {
+          leg.maneuvers.forEach((mvr, mvrIdx) => {
+            if (mvr.toll === true) {
+              manoeuvresAvecToll.push(`leg${legIdx}/mvr${mvrIdx}: "${mvr.instruction}" (${(mvr.street_names || []).join(', ') || 'sans nom'})`);
+            }
+          });
+        });
+        if (manoeuvresAvecToll.length > 0) {
+          log('DIAGNOSTIC', `✓ Champ "toll" trouvé sur ${manoeuvresAvecToll.length} manœuvre(s) :\n` + manoeuvresAvecToll.join('\n'));
+        } else {
+          log('DIAGNOSTIC', `✗ Aucune manœuvre avec "toll":true trouvée sur ce trajet (${data.trip.legs.reduce((n, l) => n + l.maneuvers.length, 0)} manœuvres au total).`, true);
+        }
+
         rawValhallaResponse = data;
-        processValhallaResponse(data);
+        await processValhallaResponse(data);
       } catch (error) {
+        log('ROUTE', `Erreur de calcul : ${error.message}`, true);
         alert(`Erreur : ${error.message}`);
       } finally {
         document.getElementById('loading').style.display = 'none';
       }
     }
 
-    function processValhallaResponse(data) {
+    async function processValhallaResponse(data) {
       routeSummary = data.trip.summary;
       routeLegs = data.trip.legs;
       decodedRouteCoords = [];
@@ -1480,19 +1737,67 @@
       routeLayer = L.polyline(decodedRouteCoords, { color: '#2980b9', weight: 6, opacity: routeOpacity }).addTo(map);
 
       map.fitBounds(routeLayer.getBounds(), { padding: [40, 40] });
-      displayInstructions();
+
+      // Attend la fin du chargement de la surcouche péages avant d'afficher
+      // les résultats - le fetch a été lancé en parallèle plus tôt (dans
+      // calculateRoute ou au moins ici), donc si c'est déjà fini ça ne coûte
+      // rien ; sinon on patiente le temps qu'il faut plutôt que d'afficher
+      // "N/D" à tort.
+      log('PEAGE', tollIndex ? 'Surcouche déjà prête, calcul du péage immédiat.' : 'Attente de la surcouche péages avant affichage...');
+      await ensureTollDataLoaded();
+      log('PEAGE', tollIndex ? 'Index péage disponible, calcul en cours.' : 'Index péage TOUJOURS indisponible après attente (voir erreur ci-dessus).', !tollIndex);
+      await displayInstructions();
     }
 
-    function displayInstructions() {
+    async function displayInstructions() {
       const summaryDiv = document.getElementById('route-summary');
       const statsDiv = document.getElementById('route-stats');
       const listDiv = document.getElementById('instructions-list');
 
-      const peage = calculerCoutPeage(decodedRouteCoords);
       const evitementActif = document.getElementById('avoid-tolls-check').checked;
+
+      // 1. Détection des portions réellement payantes, directement depuis
+      // Valhalla (trace_attributes, edge par edge - plus fiable que
+      // l'ancien matching géométrique BD Carto, qui confondait parfois un
+      // simple croisement/bretelle avec un vrai passage).
+      let segmentsPeage, pointsPayants;
+      try {
+        ({ segments: segmentsPeage, pointsPayants } = await extraireSegmentsPeageTraceAttributes(decodedRouteCoords));
+      } catch (err) {
+        log('PEAGE', `trace_attributes indisponible (${err.message}), repli sur l'approximation par manœuvre.`, true);
+        ({ segments: segmentsPeage, pointsPayants } = extraireSegmentsPeageValhalla(routeLegs));
+      }
+
+      // 2. BD Carto n'intervient plus qu'ici, pour retrouver le tarif des
+      // points déjà confirmés payants ci-dessus, en vérifiant au passage que
+      // le nom de route donné par Valhalla correspond bien au tronçon BD
+      // Carto le plus proche (évite d'accrocher une autoroute voisine lors
+      // d'un croisement/échangeur).
+      const peage = calculerCoutPeage(pointsPayants);
       const peageValue = peage.indexIndisponible
         ? 'N/D'
         : (evitementActif ? 'Sans péage' : (peage.total > 0.01 ? `${Math.ceil(peage.total)} €` : 'Gratuit'));
+
+      // 3. Coloration magenta : les mêmes segments géométriques utilisés
+      // pour repérer les points du coût ci-dessus - garantit que ce qui est
+      // affiché en couleur et ce qui est compté dans le total proviennent
+      // de la même détection Valhalla (avant : deux calculs indépendants
+      // qui pouvaient diverger).
+      // Une seule polyline multi-segments mise à jour via setLatLngs, même
+      // principe que gpxLinePast/gpxLineFuture dans Roadbook VE.
+      if (!evitementActif && segmentsPeage.length > 0) {
+        peageHighlightLayer.setLatLngs(segmentsPeage);
+        // Retrait puis réajout systématique : routeLayer est recréé de zéro à
+        // chaque recalcul (donc toujours réinséré tout en haut), alors qu'un
+        // simple .addTo(map) sur une couche déjà présente ne la déplace pas -
+        // sans ça, dès un 2e calcul (ex: après ajout d'une étape), la
+        // surbrillance resterait sous le nouveau tracé bleu.
+        map.removeLayer(peageHighlightLayer);
+        peageHighlightLayer.addTo(map);
+      } else {
+        peageHighlightLayer.setLatLngs([]);
+        map.removeLayer(peageHighlightLayer);
+      }
 
       statsDiv.innerHTML = `
         <div class="stats-row">
@@ -1519,7 +1824,7 @@
         const detailStr = peage.detail
           .map(d => {
             const coutParKm = d.km > 0 ? d.cout / d.km : 0;
-            return `${d.numero === '?' ? 'segment non identifié' : d.numero}: ${d.km.toFixed(1)} km à péage (${coutParKm.toFixed(2)} €/km) → ${formatSig2(d.cout)} €`;
+            return `${d.numero === '?' ? 'segment non identifié' : d.numero} : ${d.km.toFixed(1)} km à ${coutParKm.toFixed(2)}€/km : ${formatSig2(d.cout)}€`;
           })
           .join(' · ');
         detailEl.textContent = noteResiduel + detailStr;
@@ -1563,9 +1868,10 @@
     function importJSON(event) {
       const file = event.target.files[0];
       if (!file) return;
+      log('IMPORT', `Fichier sélectionné : "${file.name}" (${file.size} octets)`);
 
       const reader = new FileReader();
-      reader.onload = function(e) {
+      reader.onload = async function(e) {
         try {
           const data = JSON.parse(e.target.result);
           if (data.trip && data.trip.locations) {
@@ -1580,11 +1886,13 @@
             
             routePoints.vias = locs.slice(1, -1).map(l => L.latLng(l.lat, l.lon));
             renderViaInputs();
-            processValhallaResponse(data);
+            log('IMPORT', `Import réussi : ${locs.length} points.`);
+            await processValhallaResponse(data);
           } else {
             throw new Error("Format non supporté.");
           }
         } catch (err) {
+          log('IMPORT', `Échec : ${err.message}`, true);
           alert(`Erreur d'importation : ${err.message}`);
         }
       };
@@ -1605,6 +1913,7 @@
       a.download = 'itineraire.gpx';
       a.click();
       URL.revokeObjectURL(url);
+      log('EXPORT', `GPX exporté (${decodedRouteCoords.length} points).`);
     }
 
     function exportJSON() {
@@ -1616,6 +1925,7 @@
       a.download = 'itineraire.json';
       a.click();
       URL.revokeObjectURL(url);
+      log('EXPORT', 'JSON Valhalla exporté.');
     }
 
     // --- PONT DE COMMUNICATION VERS ROADBOOK VE (via localStorage) ---
@@ -1635,8 +1945,10 @@
           ts: Date.now()
         };
         localStorage.setItem(HANDOFF_KEY, JSON.stringify(payload));
+        log('ENVOI', 'Itinéraire transmis vers Roadbook VE, redirection...');
         window.location.href = './roadbook.html';
       } catch (err) {
+        log('ENVOI', `Échec de la transmission : ${err.message}`, true);
         alert("Impossible de transmettre l'itinéraire (stockage local plein ou indisponible) : " + err.message);
       }
     }
