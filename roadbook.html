@@ -34,7 +34,7 @@
       }
       body { font-family: 'Inter', -apple-system, sans-serif; margin: 0; background: var(--bg); color: var(--text); height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
 
-      #map, #terminal-logs {
+      #map {
           position: relative;
           width: 100%;
           flex: 0 0 auto;
@@ -42,20 +42,36 @@
           min-height: 40px; /* filet de sécurité avant que le JS ne fixe la hauteur exacte */
       }
 
+      /* --- Panneau de logs : surcouche plein écran indépendante (même
+         principe que GeoRouter), ne partage plus l'espace de la carte --- */
       #terminal-logs {
           display: none;
-          background: rgba(15,23,42,0.98);
-          color: #4ade80;
+          position: fixed; inset: 0; z-index: 2000;
+          background: #0d1117; color: #8ee08e;
+          flex-direction: column;
           font-family: 'JetBrains Mono', monospace;
-          font-size: 11px;
-          overflow-y: auto;
-          -webkit-overflow-scrolling: touch;
-          padding: 10px;
-          padding-bottom: 40px;
-          z-index: 10;
-          user-select: text;
-          -webkit-user-select: text;
       }
+      #terminal-logs.show { display: flex; }
+      .log-panel-header {
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 12px 14px; padding-top: max(12px, env(safe-area-inset-top));
+          background: #161b22; color: #e6edf3; font-size: 0.82rem; font-weight: 600;
+          flex-shrink: 0;
+      }
+      .log-panel-btn {
+          background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 6px;
+          padding: 5px 10px; font-size: 0.72rem; cursor: pointer; font-family: inherit;
+      }
+      #log-content {
+          flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+          padding: 10px 14px 30px; font-size: 0.72rem; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+          user-select: text; -webkit-user-select: text;
+      }
+      .log-line { border-bottom: 1px dashed #21262d; padding: 3px 0; }
+      .log-line .log-time { color: #6e7681; }
+      .log-line .log-cat { color: #58a6ff; font-weight: 700; }
+      .log-line.log-err .log-cat { color: #f85149; }
+      .log-line.log-err { color: #ffa198; }
 
       .brouter-ctrl-btn { width: 30px; height: 30px; line-height: 30px; display: flex; align-items: center; justify-content: center; text-decoration: none; color: #444; border-bottom: 1px solid #eee; cursor: pointer; background-color: #fff; position: relative; box-sizing: border-box; }
       .brouter-ctrl-btn:last-child { border-bottom: none; }
@@ -154,8 +170,6 @@
       .pdc-table th:nth-child(3), .pdc-table td:nth-child(3) { width: 22%; }
       .pdc-table th:nth-child(4), .pdc-table td:nth-child(4) { width: 22%; }
       
-      .log-err { color: #f87171; }
-      .close-log-btn { position: sticky; top: 0; float: right; background: #ef4444; color: white; border: none; padding: 4px 8px; border-radius: 8px; font-weight: bold; cursor: pointer; z-index: 20; }
       
       .user-loc-icon { background: transparent !important; border: none !important; }
       .user-loc-arrow { width: 28px; height: 28px; transition: transform 0.3s ease-out; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.4)); }
@@ -163,8 +177,15 @@
 </head>
 <body>
   <div id="terminal-logs">
-      <button class="close-log-btn" onclick="toggleLogs()">✕ Fermer</button>
-      <div id="log-content"></div>
+    <div class="log-panel-header">
+      <span>Journal des opérations</span>
+      <div style="display:flex; gap:6px;">
+        <button class="log-panel-btn" onclick="copyLogs()" title="Copier">Copier</button>
+        <button class="log-panel-btn" onclick="clearLogs()" title="Vider">Vider</button>
+        <button class="log-panel-btn" onclick="toggleLogs()" title="Fermer">✕</button>
+      </div>
+    </div>
+    <div id="log-content"></div>
   </div>
 
   <div id="map"></div>
@@ -225,7 +246,6 @@
 /* ===================== BOTTOM SHEET (basse / milieu / haute) ===================== */
 const sheet = document.getElementById('sheet');
 const mapEl = document.getElementById('map');
-const logsEl = document.getElementById('terminal-logs');
 const sheetHandleZone = document.getElementById('sheetHandle');
 const sheetDragBuffer = document.getElementById('sheetDragBuffer');
 const sheetPinned = document.getElementById('sheetPinned');
@@ -255,7 +275,6 @@ function applySheetHeight(px) {
   const topHeight = Math.max(vh - px, 0);
   sheet.style.height = px + 'px';
   mapEl.style.height = topHeight + 'px';
-  logsEl.style.height = topHeight + 'px';
   sheetDragBuffer.style.bottom = px + 'px';
   if (mapReady) map.invalidateSize({ pan: false });
 }
@@ -578,37 +597,36 @@ async function getCachedStaticData() {
   }
 }
 
+const logEntries = [];
 function log(tag, message, isError=false) {
-    const ts = new Date().toLocaleTimeString('fr-FR');
-    const pref = isError ? "❌ [ERREUR]" : "ℹ️ [INFO]";
-    const line = `[${ts}] ${pref} [${tag}] ${message}`;
-    if (isError) console.error(line); else console.log(line);
-    
+    const time = new Date().toLocaleTimeString('fr-FR', { hour12: false });
+    logEntries.push({ time, tag, message, isError: !!isError });
+    if (isError) console.error(`[${tag}]`, message); else console.log(`[${tag}]`, message);
+
     const term = document.getElementById('terminal-logs');
     const content = document.getElementById('log-content');
     if (content) {
-        const div = document.createElement('div');
-        if(isError) div.className = 'log-err';
-        div.innerText = line;
-        content.appendChild(div);
+        const line = document.createElement('div');
+        line.className = 'log-line' + (isError ? ' log-err' : '');
+        line.innerHTML = `<span class="log-time">${time}</span> <span class="log-cat">[${tag}]</span> ${String(message).replace(/</g, '&lt;')}`;
+        content.appendChild(line);
         term.scrollTop = term.scrollHeight;
     }
 }
 
 function toggleLogs() {
-    const t = document.getElementById('terminal-logs');
-    const mapDiv = document.getElementById('map');
-    const isOpen = t.style.display === 'block';
-    
-    if (isOpen) {
-        t.style.display = 'none';
-        mapDiv.style.display = 'block';
-        if(map) map.invalidateSize();
-    } else {
-        mapDiv.style.display = 'none';
-        t.style.display = 'block';
-        t.scrollTop = t.scrollHeight;
-    }
+    document.getElementById('terminal-logs').classList.toggle('show');
+}
+
+function clearLogs() {
+    logEntries.length = 0;
+    document.getElementById('log-content').innerHTML = '';
+    log('LOG', 'Journal vidé.');
+}
+
+function copyLogs() {
+    const text = logEntries.map(e => `${e.time} [${e.tag}] ${e.message}`).join('\n');
+    navigator.clipboard.writeText(text).then(() => log('LOG', 'Journal copié dans le presse-papier.'));
 }
 
 function initMap() {
@@ -1310,7 +1328,7 @@ function fetchLiveQualicharge() {
 
                 if (isInitialGPXLoad) {
                     const term = document.getElementById('terminal-logs');
-                    if (term && term.style.display === 'block') {
+                    if (term && term.classList.contains('show')) {
                         toggleLogs();
                     }
                     isInitialGPXLoad = false;
