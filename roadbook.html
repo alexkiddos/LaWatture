@@ -33,6 +33,7 @@
         }
       }
       body { font-family: 'Inter', -apple-system, sans-serif; margin: 0; background: var(--bg); color: var(--text); height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+      button, input { -webkit-appearance: none; appearance: none; font-family: inherit; }
 
       #map {
           position: relative;
@@ -110,14 +111,57 @@
       .refresh-btn:hover, .refresh-btn:active { filter: brightness(0.96); }
       .refresh-btn.tool-active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 
-      .input-field { background: var(--input-bg); color: var(--text); border: 1px solid var(--line-strong); padding: 5px; width: 52px; height: 34px; box-sizing: border-box; border-radius: 10px; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-align: center; font-size: 13px; }
+      .input-field { background: var(--input-bg); color: var(--text); border: 1px solid var(--line-strong); padding: 5px; width: 74px; flex-shrink: 0; height: 34px; box-sizing: border-box; border-radius: 10px; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-align: center; font-size: 13px; }
+
+      /* --- Bandeau : bouton switch de mode élargi et centré --- */
+      .mode-switch-btn {
+        flex: 1; height: 34px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+        background: var(--panel-2); color: var(--btn-text); border: 1px solid var(--line-strong); border-radius: 10px;
+        font-family: 'Inter', sans-serif; font-weight: 600; font-size: 13px; cursor: pointer;
+      }
+      .mode-switch-btn:hover, .mode-switch-btn:active { filter: brightness(0.96); }
+      .mode-switch-btn svg { flex-shrink: 0; }
+
+      /* --- Panneau réglages (repliable via l'icône ⚙️, même principe que GeoRouter) --- */
+      .settings-panel { padding: 4px 0 2px; margin-bottom: 10px; }
+      .settings-panel[hidden] { display: none; }
+      .settings-section-label { font-size: 12px; font-weight: 600; color: var(--muted); margin: 14px 0 6px; text-transform: uppercase; letter-spacing: 0.02em; }
+      .settings-section-label:first-child { margin-top: 2px; }
+
+      .segmented { display: flex; gap: 3px; background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: 10px; padding: 3px; }
+      .segmented-btn { flex: 1; border: none; background: transparent; color: var(--text); font-family: 'Inter', sans-serif; font-weight: 600; font-size: 13px; padding: 7px 6px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+      .segmented-btn.active { background: var(--accent); color: var(--on-accent); }
+
+      .settings-advanced-toggle { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; padding: 6px 2px; cursor: pointer; user-select: none; }
+      .settings-advanced-toggle span { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.02em; }
+      .settings-advanced-toggle svg { transition: transform 0.15s; color: var(--muted); flex-shrink: 0; }
+      .settings-advanced-toggle.open svg { transform: rotate(180deg); }
+      #advancedSettingsBody[hidden] { display: none; }
+
+      .settings-tools-row { display: flex; gap: 8px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+      .settings-tools-row[hidden] { display: none; }
+      .btn-tool-wide { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; height: 38px; background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--btn-text); cursor: pointer; font-family: 'Inter', sans-serif; }
+      .btn-tool-wide:hover, .btn-tool-wide:active { filter: brightness(0.96); }
+
+      /* --- État initial (aucune trace chargée) --- */
+      .empty-state { text-align: center; padding: 28px 10px 20px; }
+      .empty-state-icon { width: 40px; height: 40px; margin: 0 auto 10px; display: flex; align-items: center; justify-content: center; opacity: 0.55; }
+      .empty-state-icon img { width: 100%; height: 100%; object-fit: contain; }
+      .empty-state-title { font-size: 14px; color: var(--text); margin: 0; font-weight: 600; }
+      .empty-state-sub { font-size: 13px; color: var(--muted); margin: 4px 0 0; }
+      .empty-state-actions { display: flex; gap: 8px; margin-top: 20px; }
+      .btn-primary-wide { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; height: 38px; background: var(--accent); color: var(--on-accent); border: none; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif; }
       
-      .multi-select-container { position: relative; display: inline-block; font-size: 12px; }
-      .multi-select-header { background: var(--panel-2); color: var(--text); border: 1px solid var(--line-strong); padding: 5px 10px; border-radius: 999px; cursor: pointer; font-weight: 500; white-space: nowrap; user-select: none; height: 34px; box-sizing: border-box; display: inline-flex; align-items: center; }
-      .multi-select-dropdown { display: none; position: fixed; z-index: 200; background: var(--card-bg); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-height: 180px; overflow-y: auto; width: 220px; padding: 6px; }
-      .multi-select-dropdown.show { display: block; }
-      .multi-select-item { display: flex; align-items: center; gap: 6px; padding: 4px 2px; cursor: pointer; font-size: 11px; }
-      .multi-select-item input { accent-color: var(--accent); }
+      .settings-section-label.with-actions { display: flex; align-items: baseline; justify-content: space-between; }
+      .settings-section-count { font-weight: 400; text-transform: none; letter-spacing: normal; color: var(--muted); margin-left: 3px; }
+      .op-select-links { display: flex; align-items: center; }
+      .op-link-btn { background: none; border: none; padding: 0; font-size: 11px; font-weight: 600; color: var(--accent); cursor: pointer; text-transform: none; letter-spacing: normal; }
+      .op-link-sep { font-size: 11px; color: var(--muted); margin: 0 5px; }
+      .op-chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
+      .op-chip-list[hidden] { display: none; }
+      .op-chip { padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--panel-2); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+      .op-chip.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+      .op-chip-more { background: transparent; border-style: dashed; color: var(--muted); }
 
       .station-card { display: flex; flex-direction: column; border: 1px solid var(--line-strong); padding: 12px; cursor: pointer; background: var(--card-bg); border-radius: 12px; margin-bottom: 8px; }
       .station-main { display: flex; align-items: center; width: 100%; }
@@ -125,10 +169,10 @@
       .nav-block.nav-block-maneuver { display: flex; flex-direction: column; align-items: center; justify-content: center; }
       .maneuver-icon { width: 30px; height: 30px; margin: 0 auto 2px; display: flex; align-items: center; justify-content: center; }
       .maneuver-icon img { width: 100%; height: 100%; object-fit: contain; }
-      .maneuver-icon .icon-dark-theme { display: none; }
+      .maneuver-icon .icon-dark-theme, .empty-state-icon .icon-dark-theme { display: none; }
       @media (prefers-color-scheme: dark) {
-        .maneuver-icon .icon-light-theme { display: none; }
-        .maneuver-icon .icon-dark-theme { display: block; }
+        .maneuver-icon .icon-light-theme, .empty-state-icon .icon-light-theme { display: none; }
+        .maneuver-icon .icon-dark-theme, .empty-state-icon .icon-dark-theme { display: block; }
       }
       .pk-val { font-family: 'Space Grotesk', sans-serif; font-weight: 700; }
       .pk-val-wrap { display: flex; align-items: baseline; justify-content: center; gap: 2px; }
@@ -199,31 +243,16 @@
     <div class="sheet-pinned" id="sheetPinned">
       <div class="header-controls">
         <input type='number' id='kmInput' class='input-field' value="0.0" step="0.1" oninput='onKmInputChange()' max="9999">
-        <button id="btnToggleMode" class="refresh-btn" onclick="toggleViewMode()" title="Passer à la feuille de route">
+        <button id="btnToggleMode" class="mode-switch-btn" onclick="toggleViewMode()" title="Passer à la feuille de route">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg>
+          <span id="btnToggleModeLabel">Stations</span>
         </button>
-
-        <div id="operatorSelectContainer" class="multi-select-container">
-            <div class="multi-select-header" onclick="toggleOpDropdown(event)">Opérateurs (Tous) ▼</div>
-            <div id="opDropdownContent" class="multi-select-dropdown">
-                <div class="multi-select-item" onclick="toggleSelectAllOps(true)"><b>[ Tout sélectionner ]</b></div>
-                <div class="multi-select-item" onclick="toggleSelectAllOps(false)"><b>[ Tout désélectionner ]</b></div>
-                <hr style="border:0; border-top:1px solid var(--border); margin:4px 0;">
-                <div id="opCheckboxesList"></div>
-            </div>
-        </div>
 
         <input type="file" id="gpxInput" accept=".gpx,.json,.geojson" style="display:none;" onchange="handleTraceUpload(event)">
 
         <div class="header-trailing-group" style="margin-left:auto;">
-          <button id="importBtnInline" class="refresh-btn" style="display:none;" onclick="handleInlineImportClick()" title="Charger Trace (GPX/JSON Valhalla)">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
-          </button>
-          <button id="logBtnInline" class="refresh-btn" style="display:none;" onclick="handleInlineLogClick()" title="Logs">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3h6l5 5v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4z"/><path d="M9 12h6M9 16h6M9 8h2"/></svg>
-          </button>
-          <button id="toolsToggleBtn" class="refresh-btn" onclick="toggleToolsPanel(event)" title="Outils">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          <button id="settingsToggleBtn" class="refresh-btn" onclick="toggleSettingsPanel(event)" title="Réglages">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           </button>
           <a class="refresh-btn" href="./index.html" title="Retour à l'accueil" style="text-decoration:none;">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h4v-6h2v6h4a1 1 0 0 0 1-1v-9"/></svg>
@@ -236,8 +265,86 @@
     </div>
 
     <div class="sheet-body" id="sheetBody">
+
+      <!-- Réglages : repliés par défaut, ouverts via l'icône ⚙️ du bandeau -->
+      <div class="settings-panel" id="settingsPanel" hidden>
+
+        <div class="settings-section-label with-actions" id="operatorSettingsBlock">
+          <span>Opérateurs<span id="opCountLabel" class="settings-section-count"></span></span>
+          <span class="op-select-links">
+            <button type="button" class="op-link-btn" onclick="toggleSelectAllOps(true)">Tout</button><span class="op-link-sep">·</span><button type="button" class="op-link-btn" onclick="toggleSelectAllOps(false)">Aucun</button>
+          </span>
+        </div>
+        <div id="operatorSelectContainer">
+          <div id="operatorChipsList" class="op-chip-list"></div>
+          <div id="operatorChipsListSecondary" class="op-chip-list" style="margin-top:6px;" hidden></div>
+        </div>
+
+        <div class="settings-section-label">Puissance mini</div>
+        <div class="segmented" id="powerSegmented">
+          <button type="button" class="segmented-btn" data-power="50" onclick="setPowerMin(50)">50 kW</button>
+          <button type="button" class="segmented-btn active" data-power="150" onclick="setPowerMin(150)">150 kW</button>
+          <button type="button" class="segmented-btn" data-power="350" onclick="setPowerMin(350)">350 kW</button>
+        </div>
+
+        <div class="settings-section-label">Rayon de recherche</div>
+        <div class="segmented" id="radiusSegmented">
+          <button type="button" class="segmented-btn" data-radius="1" onclick="setRadius(1)">1 km</button>
+          <button type="button" class="segmented-btn active" data-radius="3" onclick="setRadius(3)">3 km</button>
+          <button type="button" class="segmented-btn" data-radius="5" onclick="setRadius(5)">5 km</button>
+          <button type="button" class="segmented-btn" data-radius="10" onclick="setRadius(10)">10 km</button>
+        </div>
+
+        <div class="settings-advanced-toggle" id="advancedToggleRow" onclick="toggleAdvancedSettings()">
+          <span>Avancé</span>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg>
+        </div>
+        <div id="advancedSettingsBody" hidden>
+          <div class="settings-section-label">Distance mini avant 1ère borne</div>
+          <div class="segmented" id="kmMinSegmented">
+            <button type="button" class="segmented-btn" data-kmmin="0" onclick="setKmMinDepart(0)">0 km</button>
+            <button type="button" class="segmented-btn active" data-kmmin="5" onclick="setKmMinDepart(5)">5 km</button>
+            <button type="button" class="segmented-btn" data-kmmin="10" onclick="setKmMinDepart(10)">10 km</button>
+          </div>
+
+          <div class="settings-section-label">Dispo minimum</div>
+          <div class="segmented" id="dispoMinSegmented">
+            <button type="button" class="segmented-btn active" data-dispomin="0" onclick="setDispoMin(0)">Peu importe</button>
+            <button type="button" class="segmented-btn" data-dispomin="1" onclick="setDispoMin(1)">≥ 1</button>
+            <button type="button" class="segmented-btn" data-dispomin="2" onclick="setDispoMin(2)">≥ 2</button>
+          </div>
+        </div>
+
+        <div class="settings-tools-row" id="settingsToolsRow" hidden>
+          <button class="btn-tool-wide" onclick="handleInlineImportClick()">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+            Importer
+          </button>
+          <button class="btn-tool-wide" onclick="handleInlineLogClick()">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3h6l5 5v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4z"/><path d="M9 12h6M9 16h6M9 8h2"/></svg>
+            Logs
+          </button>
+        </div>
+      </div>
+
       <div id="stationsContainer">
-          <div style="text-align:center; opacity:0.6; padding: 20px;">Veuillez charger un fichier GPX ou JSON Valhalla pour commencer.<br><br>💡 (Bouton 📁 ou via Partage Android)</div>
+          <div class="empty-state" id="emptyStateInitial">
+            <div class="empty-state-icon">
+              <img class="icon-light-theme" src="icons/dark/direction_depart.png" alt="">
+              <img class="icon-dark-theme" src="icons/light/direction_depart.png" alt="">
+            </div>
+            <p class="empty-state-title">Aucune trace chargée</p>
+            <p class="empty-state-sub">Importez un fichier GPX ou JSON Valhalla pour démarrer</p>
+            <div class="empty-state-actions">
+              <button class="btn-primary-wide" onclick="handleInlineImportClick()">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+                Importer
+              </button>
+              <button class="refresh-btn" onclick="handleInlineLogClick()" title="Logs">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3h6l5 5v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4z"/><path d="M9 12h6M9 16h6M9 8h2"/></svg>
+              </button>
+            </div>
+          </div>
       </div>
     </div>
   </div>
@@ -340,7 +447,15 @@ let lastValidLat = null, lastValidLng = null;
 let wakeLock = null;
 let isInitialGPXLoad = false;
 let currentViewMode = 'STATIONS';
-const RAYON_RECHERCHE_KM = 3.0, PUISSANCE_MIN_KW = 100.0, KM_MIN_DEPART = 5.0;
+
+/* --- Réglages bornes : réglables depuis le panneau ⚙️, persistés en localStorage --- */
+const SETTINGS_STORAGE_KEYS = { power: 'rb_pwrMin', radius: 'rb_radius', kmMin: 'rb_kmMinDepart', dispoMin: 'rb_dispoMin' };
+let PUISSANCE_MIN_KW = parseFloat(localStorage.getItem(SETTINGS_STORAGE_KEYS.power)) || 150;
+let RAYON_RECHERCHE_KM = parseFloat(localStorage.getItem(SETTINGS_STORAGE_KEYS.radius)) || 3;
+let KM_MIN_DEPART = parseFloat(localStorage.getItem(SETTINGS_STORAGE_KEYS.kmMin));
+if (isNaN(KM_MIN_DEPART)) KM_MIN_DEPART = 5;
+let DISPO_MIN = parseInt(localStorage.getItem(SETTINGS_STORAGE_KEYS.dispoMin)) || 0;
+let lastRawStationRows = null; // dernier jeu de lignes IRVE brutes reçu (cache ou téléchargement), pour ré-filtrer sans re-télécharger
 
 const INITIAL_LAT = 46.603354;
 const INITIAL_LNG = 1.888334;
@@ -351,54 +466,103 @@ const franceBounds = L.latLngBounds([41.3, -5.2], [51.1, 9.6]);
 
 function toggleViewMode() {
     const btn = document.getElementById('btnToggleMode');
+    const label = document.getElementById('btnToggleModeLabel');
     const ICON_BOLT = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg>';
     const ICON_ROUTE = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 2 4.5 20.29 12 17l7.5 3.29L12 2Z"/></svg>';
     if (currentViewMode === 'STATIONS') {
         currentViewMode = 'ROADBOOK';
-        btn.innerHTML = ICON_ROUTE;
+        btn.innerHTML = ICON_ROUTE + '<span id="btnToggleModeLabel">Feuille de route</span>';
         btn.title = "Revenir aux stations de recharge";
     } else {
         currentViewMode = 'STATIONS';
-        btn.innerHTML = ICON_BOLT;
+        btn.innerHTML = ICON_BOLT + '<span id="btnToggleModeLabel">Stations</span>';
         btn.title = "Passer à la feuille de route";
     }
     updateOperatorVisibility();
     renderList();
 }
 
-/* --- Bouton "stack" : bascule Opérateurs <-> Import/Log --- */
-let toolsExpanded = false;
+/* --- Panneau réglages : ouvert/fermé via l'icône ⚙️ du bandeau --- */
+let settingsExpanded = false;
 
 function updateOperatorVisibility() {
-    const show = (currentViewMode === 'STATIONS') && !toolsExpanded;
-    document.getElementById('operatorSelectContainer').style.display = show ? 'inline-block' : 'none';
+    // Le filtre opérateur n'a de sens qu'en mode Stations (pas en Feuille de route)
+    document.getElementById('operatorSettingsBlock').style.display = (currentViewMode === 'STATIONS') ? '' : 'none';
+    document.getElementById('operatorSelectContainer').style.display = (currentViewMode === 'STATIONS') ? '' : 'none';
 }
 
-function collapseToolsPanel() {
-    toolsExpanded = false;
-    document.getElementById('importBtnInline').style.display = 'none';
-    document.getElementById('logBtnInline').style.display = 'none';
-    document.getElementById('toolsToggleBtn').classList.remove('tool-active');
-    updateOperatorVisibility();
-}
-
-function toggleToolsPanel(e) {
+function toggleSettingsPanel(e) {
     e.stopPropagation();
-    toolsExpanded = !toolsExpanded;
-    document.getElementById('importBtnInline').style.display = toolsExpanded ? 'inline-flex' : 'none';
-    document.getElementById('logBtnInline').style.display = toolsExpanded ? 'inline-flex' : 'none';
-    document.getElementById('toolsToggleBtn').classList.toggle('tool-active', toolsExpanded);
-    updateOperatorVisibility();
+    settingsExpanded = !settingsExpanded;
+    document.getElementById('settingsPanel').hidden = !settingsExpanded;
+    document.getElementById('settingsToggleBtn').classList.toggle('tool-active', settingsExpanded);
+    if (settingsExpanded && sheetState === 'low') setSheetState('mid');
+}
+
+function closeSettingsPanel() {
+    settingsExpanded = false;
+    document.getElementById('settingsPanel').hidden = true;
+    document.getElementById('settingsToggleBtn').classList.remove('tool-active');
+}
+
+let advancedSettingsExpanded = false;
+function toggleAdvancedSettings() {
+    advancedSettingsExpanded = !advancedSettingsExpanded;
+    document.getElementById('advancedSettingsBody').hidden = !advancedSettingsExpanded;
+    document.getElementById('advancedToggleRow').classList.toggle('open', advancedSettingsExpanded);
+}
+
+function updateSegmentedActive(containerId, dataAttr, val) {
+    document.querySelectorAll('#' + containerId + ' .segmented-btn').forEach(b => {
+        b.classList.toggle('active', parseFloat(b.dataset[dataAttr]) === parseFloat(val));
+    });
+}
+
+// Ré-applique puissance mini / rayon / distance mini à partir des données brutes déjà
+// en mémoire, sans re-télécharger le fichier IRVE (les 3 réglages influent sur la
+// constitution de globalData, contrairement à Dispo mini qui ne filtre qu'à l'affichage).
+function reapplyStationFilters() {
+    if (!lastRawStationRows) return;
+    log("FILTRES", "Ré-application des filtres bornes (puissance / rayon / distance mini)...");
+    processStaticData(lastRawStationRows);
+}
+
+function setPowerMin(val) {
+    PUISSANCE_MIN_KW = val;
+    localStorage.setItem(SETTINGS_STORAGE_KEYS.power, val);
+    updateSegmentedActive('powerSegmented', 'power', val);
+    reapplyStationFilters();
+}
+
+function setRadius(val) {
+    RAYON_RECHERCHE_KM = val;
+    localStorage.setItem(SETTINGS_STORAGE_KEYS.radius, val);
+    updateSegmentedActive('radiusSegmented', 'radius', val);
+    reapplyStationFilters();
+}
+
+function setKmMinDepart(val) {
+    KM_MIN_DEPART = val;
+    localStorage.setItem(SETTINGS_STORAGE_KEYS.kmMin, val);
+    updateSegmentedActive('kmMinSegmented', 'kmmin', val);
+    reapplyStationFilters();
+}
+
+function setDispoMin(val) {
+    DISPO_MIN = val;
+    localStorage.setItem(SETTINGS_STORAGE_KEYS.dispoMin, val);
+    updateSegmentedActive('dispoMinSegmented', 'dispomin', val);
+    renderList(); // filtre appliqué directement sur les données déjà en mémoire
 }
 
 function handleInlineImportClick() {
     document.getElementById('gpxInput').click();
-    collapseToolsPanel();
+    closeSettingsPanel();
 }
 
 function handleInlineLogClick() {
     toggleLogs();
-    collapseToolsPanel();
+    closeSettingsPanel();
 }
 
 function decodeValhallaPolyline(str, precision = 6) {
@@ -682,30 +846,10 @@ function initMap() {
     });
     map.addControl(new CustomActionControls());
 
-    document.addEventListener('click', (e) => {
-        document.querySelectorAll('.multi-select-container').forEach(container => {
-            if (!container.contains(e.target)) {
-                const dropdown = container.querySelector('.multi-select-dropdown');
-                if (dropdown) dropdown.classList.remove('show');
-            }
-        });
-    });
-
     log("INIT", "Carte Leaflet initialisée.");
     loadOrFetchCommunesDB();
 }
 
-function toggleOpDropdown(e) {
-    e.stopPropagation();
-    const dropdown = document.getElementById('opDropdownContent');
-    const willShow = !dropdown.classList.contains('show');
-    if (willShow) {
-        const rect = e.currentTarget.getBoundingClientRect();
-        dropdown.style.top = (rect.bottom + 4) + 'px';
-        dropdown.style.left = Math.min(rect.left, window.innerWidth - 230) + 'px';
-    }
-    dropdown.classList.toggle('show');
-}
 
 function handleButton1Click() {
     if (isAutoTrack || isSimulating) {
@@ -964,6 +1108,10 @@ function processTraceContent(content, filename) {
         log("ROADBOOK", `${roadbookManeuvers.length} instructions de guidage extraites !`);
     }
 
+    // Une trace est chargée : Importer/Logs quittent l'état d'accueil et rejoignent
+    // la section "Outils" du panneau réglages (usage occasionnel une fois le trajet en cours).
+    document.getElementById('settingsToolsRow').hidden = false;
+
     if(gpxLineFuture) map.removeLayer(gpxLineFuture);
     if(gpxLinePast) map.removeLayer(gpxLinePast);
 
@@ -1167,6 +1315,7 @@ async function fetchAndFilterStations() {
 }
 
 async function processStaticData(rawData) {
+    lastRawStationRows = rawData;
     let stationsMap = new Map();
     let codesInseeSet = new Set();
 
@@ -1234,39 +1383,159 @@ async function processStaticData(rawData) {
     
     globalData.sort((a,b) => a.km - b.km);
 
-    let opListContainer = document.getElementById('opCheckboxesList');
-    opListContainer.innerHTML = "";
-    Array.from(activeOperators).sort().forEach(op => {
-        let div = document.createElement('div');
-        div.className = 'multi-select-item';
-        div.innerHTML = `<input type="checkbox" value="${op}" checked onchange="onOpCheckboxChange()"> <span>${op}</span>`;
-        opListContainer.appendChild(div);
-    });
-    updateOpHeaderLabel();
+    lastActiveOperators = activeOperators;
+    buildOperatorChips(activeOperators);
 
     log("PROJECTION", `${globalData.length} stations retenues le long du tracé.`);
     renderList();
     fetchLiveQualicharge();
 }
 
-function toggleSelectAllOps(status) {
-    const checkboxes = document.querySelectorAll('#opCheckboxesList input[type="checkbox"]');
-    checkboxes.forEach(cb => cb.checked = status);
-    onOpCheckboxChange();
+/* --- Opérateurs "principaux" : liste externe (CSV), jamais codée en dur --- */
+let PRIMARY_OPERATORS = [];
+let lastActiveOperators = new Set();
+let operatorsMoreExpanded = false;
+const PRIMARY_OPERATORS_CSV_URL = './operateurs_principaux.csv';
+const PRIMARY_OPERATORS_CACHE_KEY = 'cached_primary_operators';
+
+async function getCachedPrimaryOperators() {
+    try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_STATIONS, 'readonly');
+        const store = tx.objectStore(STORE_STATIONS);
+        return await new Promise(r => {
+            const req = store.get(PRIMARY_OPERATORS_CACHE_KEY);
+            req.onsuccess = () => r(req.result || null);
+            req.onerror = () => r(null);
+        });
+    } catch (err) {
+        return null;
+    }
 }
 
-function onOpCheckboxChange() {
-    updateOpHeaderLabel();
+async function savePrimaryOperatorsToDB(list) {
+    try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_STATIONS, 'readwrite');
+        tx.objectStore(STORE_STATIONS).put(list, PRIMARY_OPERATORS_CACHE_KEY);
+    } catch (err) {
+        log("OPÉRATEURS", "Erreur de sauvegarde de la liste principale : " + err.message, true);
+    }
+}
+
+// Récupère la liste des opérateurs "principaux" depuis un fichier CSV externe,
+// maintenu indépendamment de l'appli (un seul champ attendu : "nom"). Mise en
+// cache locale pour un fonctionnement hors-ligne dès le premier chargement réussi.
+async function loadPrimaryOperators() {
+    const cached = await getCachedPrimaryOperators();
+    if (Array.isArray(cached) && cached.length > 0) {
+        PRIMARY_OPERATORS = cached;
+        log("OPÉRATEURS", `Liste des opérateurs principaux chargée depuis le cache (${cached.length}).`);
+    }
+
+    if (!navigator.onLine) {
+        if (!PRIMARY_OPERATORS.length) log("OPÉRATEURS", "Hors-ligne et aucune liste en cache : pas de tri principal/secondaire pour l'instant.", true);
+        return;
+    }
+
+    try {
+        const res = await fetch(PRIMARY_OPERATORS_CSV_URL, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const text = await res.text();
+        const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+        const list = parsed.data.map(row => (row.nom || '').trim()).filter(Boolean);
+        if (list.length === 0) throw new Error('fichier vide ou colonne "nom" absente');
+
+        PRIMARY_OPERATORS = list;
+        savePrimaryOperatorsToDB(list);
+        log("OPÉRATEURS", `${list.length} opérateurs principaux récupérés depuis ${PRIMARY_OPERATORS_CSV_URL}.`);
+
+        // Si des bornes étaient déjà affichées avant que le CSV n'arrive, on ré-applique le tri.
+        if (lastActiveOperators.size > 0) buildOperatorChips(lastActiveOperators);
+    } catch (err) {
+        const msg = PRIMARY_OPERATORS.length
+            ? `Échec de mise à jour de ${PRIMARY_OPERATORS_CSV_URL}, liste en cache conservée (${err.message}).`
+            : `${PRIMARY_OPERATORS_CSV_URL} introuvable : liste plate utilisée en attendant (${err.message}).`;
+        log("OPÉRATEURS", msg, true);
+    }
+}
+
+// Correspondance partielle insensible à la casse : absorbe les variantes de
+// nommage du fichier IRVE (ex. "Power Dot France" vs entrée "Power Dot").
+function isPrimaryOperator(opName) {
+    if (!opName || PRIMARY_OPERATORS.length === 0) return false;
+    const norm = opName.toLowerCase();
+    return PRIMARY_OPERATORS.some(p => norm.includes(p.toLowerCase()));
+}
+
+function buildOperatorChips(activeOperatorsSet) {
+    const sorted = Array.from(activeOperatorsSet).sort();
+    const primary = sorted.filter(isPrimaryOperator);
+    const secondary = sorted.filter(op => !isPrimaryOperator(op));
+
+    const primaryContainer = document.getElementById('operatorChipsList');
+    const secondaryContainer = document.getElementById('operatorChipsListSecondary');
+    primaryContainer.innerHTML = "";
+    secondaryContainer.innerHTML = "";
+    operatorsMoreExpanded = false;
+    secondaryContainer.hidden = true;
+
+    const makeChip = (op) => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'op-chip active';
+        chip.dataset.op = op;
+        chip.textContent = op;
+        chip.onclick = () => toggleOperatorChip(op);
+        return chip;
+    };
+
+    if (primary.length === 0) {
+        // Aucun opérateur principal détecté sur ce trajet : liste à plat, pas de découpage.
+        sorted.forEach(op => primaryContainer.appendChild(makeChip(op)));
+    } else {
+        primary.forEach(op => primaryContainer.appendChild(makeChip(op)));
+        secondary.forEach(op => secondaryContainer.appendChild(makeChip(op)));
+        if (secondary.length > 0) {
+            const moreToggle = document.createElement('button');
+            moreToggle.type = 'button';
+            moreToggle.id = 'opMoreToggle';
+            moreToggle.className = 'op-chip op-chip-more';
+            moreToggle.textContent = `+ ${secondary.length} autres`;
+            moreToggle.onclick = toggleOperatorsMore;
+            primaryContainer.appendChild(moreToggle);
+        }
+    }
+    updateOpCountLabel();
+}
+
+function toggleOperatorsMore() {
+    operatorsMoreExpanded = !operatorsMoreExpanded;
+    const secondaryContainer = document.getElementById('operatorChipsListSecondary');
+    const moreToggle = document.getElementById('opMoreToggle');
+    secondaryContainer.hidden = !operatorsMoreExpanded;
+    if (moreToggle) moreToggle.textContent = operatorsMoreExpanded ? `− Moins d'opérateurs` : `+ ${secondaryContainer.children.length} autres`;
+}
+
+function toggleSelectAllOps(status) {
+    document.querySelectorAll('#operatorChipsList .op-chip[data-op], #operatorChipsListSecondary .op-chip').forEach(chip => chip.classList.toggle('active', status));
+    updateOpCountLabel();
     renderList();
 }
 
-function updateOpHeaderLabel() {
-    const checkboxes = document.querySelectorAll('#opCheckboxesList input[type="checkbox"]');
-    const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
-    let label = "Opérateurs (Tous)";
-    if(checkedCount === 0) label = "Opérateurs (Aucun)";
-    else if(checkedCount < checkboxes.length) label = `Opérateurs (${checkedCount}/${checkboxes.length})`;
-    document.querySelector('.multi-select-header').innerText = label + " ▼";
+function toggleOperatorChip(op) {
+    const chip = document.querySelector(`.op-chip[data-op="${CSS.escape(op)}"]`);
+    if (chip) chip.classList.toggle('active');
+    updateOpCountLabel();
+    renderList();
+}
+
+function updateOpCountLabel() {
+    const chips = document.querySelectorAll('#operatorChipsList .op-chip[data-op], #operatorChipsListSecondary .op-chip');
+    const activeCount = document.querySelectorAll('#operatorChipsList .op-chip.active[data-op], #operatorChipsListSecondary .op-chip.active').length;
+    const label = document.getElementById('opCountLabel');
+    if (!label) return;
+    label.textContent = chips.length ? ` (${activeCount}/${chips.length})` : '';
 }
 
 function fetchLiveQualicharge() {
@@ -1448,8 +1717,8 @@ function renderRoadbookList(kmFilter) {
 
 function renderStationsList(kmFilter) {
     let selectedOps = new Set();
-    document.querySelectorAll('#opCheckboxesList input[type="checkbox"]').forEach(cb => {
-        if(cb.checked) selectedOps.add(cb.value);
+    document.querySelectorAll('#operatorChipsList .op-chip.active[data-op], #operatorChipsListSecondary .op-chip.active').forEach(chip => {
+        selectedOps.add(chip.dataset.op);
     });
 
     for(let k in markers) map.removeLayer(markers[k]);
@@ -1459,6 +1728,7 @@ function renderStationsList(kmFilter) {
     globalData.forEach((s, i) => {
         if (s.km < kmFilter) return;
         if (selectedOps.size > 0 && !selectedOps.has(s.op)) return;
+        if (s.dispo < DISPO_MIN) return;
         
         let status = s.dispo === 0 ? 'dispo-alert' : (s.dispo <= s.total/3 ? 'dispo-warn' : 'dispo-ok');
         let color = s.dispo === 0 ? '#dc2626' : (s.dispo <= s.total/3 ? '#d97706' : '#16a34a');
@@ -1513,8 +1783,19 @@ function renderStationsList(kmFilter) {
     document.getElementById('stationsContainer').innerHTML = html || "<div style='padding:20px; text-align:center;'>Aucune station trouvée avec ces critères.</div>";
 }
 
+// Synchronise l'état visuel du panneau réglages avec les valeurs persistées
+// (au cas où elles diffèrent des valeurs par défaut codées dans le HTML)
+function initSettingsUI() {
+    updateSegmentedActive('powerSegmented', 'power', PUISSANCE_MIN_KW);
+    updateSegmentedActive('radiusSegmented', 'radius', RAYON_RECHERCHE_KM);
+    updateSegmentedActive('kmMinSegmented', 'kmmin', KM_MIN_DEPART);
+    updateSegmentedActive('dispoMinSegmented', 'dispomin', DISPO_MIN);
+}
+initSettingsUI();
+
 // Initialisation de la carte
 initMap();
+loadPrimaryOperators();
 
 // Vérification immédiate d'un itinéraire transmis par GeoRouter / le Hub (localStorage)
 const hasIncomingRoute = checkIncomingRouteData();
