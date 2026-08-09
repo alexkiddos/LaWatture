@@ -307,11 +307,12 @@
             <button type="button" class="segmented-btn" data-kmmin="10" onclick="setKmMinDepart(10)">10 km</button>
           </div>
 
-          <div class="settings-section-label">Dispo minimum</div>
-          <div class="segmented" id="dispoMinSegmented">
-            <button type="button" class="segmented-btn active" data-dispomin="0" onclick="setDispoMin(0)">Peu importe</button>
-            <button type="button" class="segmented-btn" data-dispomin="1" onclick="setDispoMin(1)">≥ 1</button>
-            <button type="button" class="segmented-btn" data-dispomin="2" onclick="setDispoMin(2)">≥ 2</button>
+          <div class="settings-section-label">PDC total minimum</div>
+          <div class="segmented" id="pdcTotalMinSegmented">
+            <button type="button" class="segmented-btn active" data-pdctotalmin="0" onclick="setPdcTotalMin(0)">Tous</button>
+            <button type="button" class="segmented-btn" data-pdctotalmin="2" onclick="setPdcTotalMin(2)">2+</button>
+            <button type="button" class="segmented-btn" data-pdctotalmin="3" onclick="setPdcTotalMin(3)">3+</button>
+            <button type="button" class="segmented-btn" data-pdctotalmin="5" onclick="setPdcTotalMin(5)">5+</button>
           </div>
         </div>
 
@@ -449,14 +450,45 @@ let wakeLock = null;
 let isInitialGPXLoad = false;
 let currentViewMode = 'STATIONS';
 
-/* --- Réglages bornes : réglables depuis le panneau ⚙️, persistés en localStorage --- */
-const SETTINGS_STORAGE_KEYS = { power: 'rb_pwrMin', radius: 'rb_radius', kmMin: 'rb_kmMinDepart', dispoMin: 'rb_dispoMin' };
-let PUISSANCE_MIN_KW = parseFloat(localStorage.getItem(SETTINGS_STORAGE_KEYS.power)) || 150;
-let RAYON_RECHERCHE_KM = parseFloat(localStorage.getItem(SETTINGS_STORAGE_KEYS.radius)) || 3;
-let KM_MIN_DEPART = parseFloat(localStorage.getItem(SETTINGS_STORAGE_KEYS.kmMin));
-if (isNaN(KM_MIN_DEPART)) KM_MIN_DEPART = 5;
-let DISPO_MIN = parseInt(localStorage.getItem(SETTINGS_STORAGE_KEYS.dispoMin)) || 0;
+/* --- Réglages bornes : réglables depuis le panneau ⚙️, persistés en UN SEUL objet
+   localStorage (même mécanique que GeoRouter : sauvegarderReglages/restaurerReglages,
+   appelées à chaque changement / une fois au démarrage). --- */
+const REGLAGES_KEY = 'roadbook_reglages';
+let PUISSANCE_MIN_KW = 150;
+let RAYON_RECHERCHE_KM = 3;
+let KM_MIN_DEPART = 5;
+let PDC_TOTAL_MIN = 0; // 0 = "Tous"
 let lastRawStationRows = null; // dernier jeu de lignes IRVE brutes reçu (cache ou téléchargement), pour ré-filtrer sans re-télécharger
+
+function sauvegarderReglages() {
+    const reglages = {
+        puissanceMin: PUISSANCE_MIN_KW,
+        rayon: RAYON_RECHERCHE_KM,
+        kmMinDepart: KM_MIN_DEPART,
+        pdcTotalMin: PDC_TOTAL_MIN
+    };
+    try {
+        localStorage.setItem(REGLAGES_KEY, JSON.stringify(reglages));
+    } catch (err) {
+        log("RÉGLAGES", "Échec de sauvegarde : " + err.message, true);
+    }
+}
+
+function restaurerReglages() {
+    let reglages;
+    try {
+        reglages = JSON.parse(localStorage.getItem(REGLAGES_KEY) || '{}');
+    } catch (err) {
+        return;
+    }
+    // Vérifs de type (pas de simple `if (valeur)`) : 0 est une valeur valide pour
+    // kmMinDepart et pdcTotalMin ("Tous"), un test de vérité les ignorerait à tort.
+    if (typeof reglages.puissanceMin === 'number') setPowerMin(reglages.puissanceMin);
+    if (typeof reglages.rayon === 'number') setRadius(reglages.rayon);
+    if (typeof reglages.kmMinDepart === 'number') setKmMinDepart(reglages.kmMinDepart);
+    if (typeof reglages.pdcTotalMin === 'number') setPdcTotalMin(reglages.pdcTotalMin);
+    log("RÉGLAGES", "Réglages restaurés depuis la dernière session.");
+}
 
 const INITIAL_LAT = 46.603354;
 const INITIAL_LNG = 1.888334;
@@ -521,7 +553,7 @@ function updateSegmentedActive(containerId, dataAttr, val) {
 
 // Ré-applique puissance mini / rayon / distance mini à partir des données brutes déjà
 // en mémoire, sans re-télécharger le fichier IRVE (les 3 réglages influent sur la
-// constitution de globalData, contrairement à Dispo mini qui ne filtre qu'à l'affichage).
+// constitution de globalData, contrairement à PDC total mini qui ne filtre qu'à l'affichage).
 function reapplyStationFilters() {
     if (!lastRawStationRows) return;
     log("FILTRES", "Ré-application des filtres bornes (puissance / rayon / distance mini)...");
@@ -530,29 +562,32 @@ function reapplyStationFilters() {
 
 function setPowerMin(val) {
     PUISSANCE_MIN_KW = val;
-    localStorage.setItem(SETTINGS_STORAGE_KEYS.power, val);
     updateSegmentedActive('powerSegmented', 'power', val);
+    sauvegarderReglages();
     reapplyStationFilters();
 }
 
 function setRadius(val) {
     RAYON_RECHERCHE_KM = val;
-    localStorage.setItem(SETTINGS_STORAGE_KEYS.radius, val);
     updateSegmentedActive('radiusSegmented', 'radius', val);
+    sauvegarderReglages();
     reapplyStationFilters();
 }
 
 function setKmMinDepart(val) {
     KM_MIN_DEPART = val;
-    localStorage.setItem(SETTINGS_STORAGE_KEYS.kmMin, val);
     updateSegmentedActive('kmMinSegmented', 'kmmin', val);
+    sauvegarderReglages();
     reapplyStationFilters();
 }
 
-function setDispoMin(val) {
-    DISPO_MIN = val;
-    localStorage.setItem(SETTINGS_STORAGE_KEYS.dispoMin, val);
-    updateSegmentedActive('dispoMinSegmented', 'dispomin', val);
+// Filtre sur le nombre TOTAL de PDC de la station (s.total, issu du fichier IRVE statique),
+// pas sur la disponibilité instantanée (s.dispo, qui varie en direct via Qualicharge) :
+// une station à 2 PDC reste "2+" même si un des deux est occupé au moment où on regarde.
+function setPdcTotalMin(val) {
+    PDC_TOTAL_MIN = val;
+    updateSegmentedActive('pdcTotalMinSegmented', 'pdctotalmin', val);
+    sauvegarderReglages();
     renderList(); // filtre appliqué directement sur les données déjà en mémoire
 }
 
@@ -1810,7 +1845,7 @@ function renderStationsList(kmFilter) {
     globalData.forEach((s, i) => {
         if (s.km < kmFilter) return;
         if (selectedOps.size > 0 && !selectedOps.has(s.op)) return;
-        if (s.dispo < DISPO_MIN) return;
+        if (s.total < PDC_TOTAL_MIN) return;
         
         let status = s.dispo === 0 ? 'dispo-alert' : (s.dispo <= s.total/3 ? 'dispo-warn' : 'dispo-ok');
         let color = s.dispo === 0 ? '#dc2626' : (s.dispo <= s.total/3 ? '#d97706' : '#16a34a');
@@ -1865,15 +1900,9 @@ function renderStationsList(kmFilter) {
     document.getElementById('stationsContainer').innerHTML = html || "<div style='padding:20px; text-align:center;'>Aucune station trouvée avec ces critères.</div>";
 }
 
-// Synchronise l'état visuel du panneau réglages avec les valeurs persistées
-// (au cas où elles diffèrent des valeurs par défaut codées dans le HTML)
-function initSettingsUI() {
-    updateSegmentedActive('powerSegmented', 'power', PUISSANCE_MIN_KW);
-    updateSegmentedActive('radiusSegmented', 'radius', RAYON_RECHERCHE_KM);
-    updateSegmentedActive('kmMinSegmented', 'kmmin', KM_MIN_DEPART);
-    updateSegmentedActive('dispoMinSegmented', 'dispomin', DISPO_MIN);
-}
-initSettingsUI();
+// Restaure les réglages bornes de la dernière session (objet JSON unique, même
+// mécanique que GeoRouter) et synchronise l'affichage du panneau réglages en conséquence.
+restaurerReglages();
 
 // Initialisation de la carte
 initMap();
