@@ -556,7 +556,7 @@
           Éviter les péages
         </span>
         <span class="switch">
-          <input type="checkbox" id="avoid-tolls-check" />
+          <input type="checkbox" id="avoid-tolls-check" onchange="sauvegarderReglages()" />
           <span class="switch-track"><span class="switch-thumb"></span></span>
         </span>
       </label>
@@ -567,7 +567,7 @@
           Éviter les grands axes
         </span>
         <span class="switch">
-          <input type="checkbox" id="avoid-highways-check" />
+          <input type="checkbox" id="avoid-highways-check" onchange="sauvegarderReglages()" />
           <span class="switch-track"><span class="switch-thumb"></span></span>
         </span>
       </label>
@@ -948,6 +948,7 @@
       document.querySelectorAll('#geocoder-segmented .segmented-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.engine === engine);
       });
+      sauvegarderReglages();
     }
 
     function setSpeedLimit(value) {
@@ -955,6 +956,40 @@
       document.querySelectorAll('#speed-segmented .segmented-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.speed === value);
       });
+      sauvegarderReglages();
+    }
+
+    /* --- Persistance des réglages (localStorage) : vitesse max, éviter
+       péages, éviter grands axes, moteur de recherche - tout revenait à
+       zéro à chaque rechargement de page avant ça. */
+    const REGLAGES_KEY = 'georouter_reglages';
+
+    function sauvegarderReglages() {
+      const reglages = {
+        speedLimit: document.getElementById('speed-limit-select').value,
+        avoidTolls: document.getElementById('avoid-tolls-check').checked,
+        avoidHighways: document.getElementById('avoid-highways-check').checked,
+        geocoder: currentGeocoder
+      };
+      try {
+        localStorage.setItem(REGLAGES_KEY, JSON.stringify(reglages));
+      } catch (err) {
+        log('REGLAGES', `Échec de sauvegarde : ${err.message}`, true);
+      }
+    }
+
+    function restaurerReglages() {
+      let reglages;
+      try {
+        reglages = JSON.parse(localStorage.getItem(REGLAGES_KEY) || '{}');
+      } catch (err) {
+        return;
+      }
+      if (reglages.speedLimit) setSpeedLimit(reglages.speedLimit);
+      if (reglages.avoidTolls) document.getElementById('avoid-tolls-check').checked = true;
+      if (reglages.avoidHighways) document.getElementById('avoid-highways-check').checked = true;
+      if (reglages.geocoder) setGeocoder(reglages.geocoder);
+      log('REGLAGES', 'Réglages restaurés depuis la dernière session.');
     }
 
     /* ===================== BOTTOM SHEET (haute / milieu / basse) ===================== */
@@ -1167,6 +1202,8 @@
     });
 
     L.control.scale({ metric: true, imperial: false, position: 'bottomleft' }).addTo(map);
+
+    restaurerReglages();
 
     /* --- BOUTON DE RECADRAGE AUTOMATIQUE --- */
     const FitBoundsControl = L.Control.extend({
