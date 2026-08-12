@@ -7,14 +7,12 @@
   <meta name="theme-color" content="#0B0B0E" media="(prefers-color-scheme: dark)" />
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="manifest" href="./manifest.json">
-  <title>GeoRouter - Valhalla (Stadia Maps)</title>
+  <title>GeoRouter - GraphHopper</title>
 
   <!-- Leaflet CSS & JS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- Turf.js pour le matching géométrique tracé <-> tronçons payants (calcul du péage) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
 
   <!-- Polices de l'interface (zone basse uniquement — la carte garde ses styles Leaflet natifs) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -623,324 +621,181 @@
       navigator.clipboard.writeText(text).then(() => log('LOG', 'Journal copié dans le presse-papier.'));
     }
 
-    const VALHALLA_BASE_URL = "https://api.lawatture.fr";
+    /* --- CONFIGURATION GRAPHHOPPER ---
+       ⚠️ Renseigne ta propre clé API (régénère-la si tu as déjà utilisé
+       celle qui a circulé dans les tests précédents). */
+    const GRAPHHOPPER_API_KEY = "9371d24a-0380-4080-8432-97e93063ebb1";
+    const GRAPHHOPPER_BASE_URL = "https://graphhopper.com/api/1";
 
     let currentGeocoder = 'photon';
     let ignoreNextMapClick = false;
 
-    /* --- COÛT PÉAGE : source unique = la surcouche BD Carto elle-même ---
-       Le fichier autoroutes_payantes_surcouche.geojson (sortie de
-       generate_surcouche_geojson.py) est chargé tel quel par Leaflet, sans
-       conversion topojson intermédiaire. Il ne contient QUE les tronçons
-       payants, chacun avec un 'cout_troncon_eur' déjà figé - pas de tarif
-       au km à appliquer côté app. Pas de fichier séparé à maintenir : la
-       surcouche affichée sur la carte EST la source du calcul. */
-    const TOLERANCE_MATCH_METRES = 40;    // distance max tracé <-> tronçon BD Carto pour considérer un "match"
-    let tollIndex = null; // rempli par buildTollIndex() une fois la surcouche chargée
-
-    /* Grille spatiale grossière pour ne comparer un point du tracé qu'aux
-       tronçons payants réellement proches (évite de tester les ~10 000+
-       tronçons de la surcouche à chaque point du tracé). */
-    const GRID_CELL_DEG = 0.05; // ~5 km
-
-    function cellKey(lng, lat) {
-      return `${Math.floor(lng / GRID_CELL_DEG)}_${Math.floor(lat / GRID_CELL_DEG)}`;
-    }
-
-    function buildTollIndex(geoData) {
-      const lines = [];
-      const grid = new Map();
-
-      function ajouterLigne(coords, cout, numero, idxOriginal, longueurKm) {
-        if (!coords || coords.length < 2) return;
-        let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
-        coords.forEach(([lng, lat]) => {
-          if (lng < minLng) minLng = lng;
-          if (lng > maxLng) maxLng = lng;
-          if (lat < minLat) minLat = lat;
-          if (lat > maxLat) maxLat = lat;
-        });
-
-        // idTroncon identifie le tronçon D'ORIGINE (une feature peut être
-        // scindée en plusieurs lignes si MultiLineString) - sert à ne
-        // compter son coût qu'UNE SEULE FOIS même si le tracé la traverse
-        // sur plusieurs points/segments successifs.
-        const idx = lines.length;
-        lines.push({ coords, cout, numero, longueurKm, idTroncon: idxOriginal, turfLine: turf.lineString(coords) });
-
-        const cx0 = Math.floor(minLng / GRID_CELL_DEG), cx1 = Math.floor(maxLng / GRID_CELL_DEG);
-        const cy0 = Math.floor(minLat / GRID_CELL_DEG), cy1 = Math.floor(maxLat / GRID_CELL_DEG);
-        for (let cx = cx0; cx <= cx1; cx++) {
-          for (let cy = cy0; cy <= cy1; cy++) {
-            const key = `${cx}_${cy}`;
-            if (!grid.has(key)) grid.set(key, []);
-            grid.get(key).push(idx);
-          }
-        }
-      }
-
-      let ignores = 0;
-
-      geoData.features.forEach((feature, idxOriginal) => {
-        const props = feature.properties || {};
-        const cout = (props.cout_troncon_eur != null) ? props.cout_troncon_eur : 0;
-        const numero = props.numero || props.autoroute || '?';
-        const geom = feature.geometry;
-        if (!geom) { ignores++; return; }
-
-        if (geom.type === 'LineString') {
-          if (!geom.coordinates || geom.coordinates.length < 2) { ignores++; return; }
-          const longueurKm = turf.length(turf.lineString(geom.coordinates), { units: 'kilometers' });
-          ajouterLigne(geom.coordinates, cout, numero, idxOriginal, longueurKm);
-        } else if (geom.type === 'MultiLineString') {
-          // MultiLineString : le coût du tronçon est réparti au prorata de
-          // la longueur de chaque sous-ligne (rare en BD Carto, sécurité).
-          // On écarte les sous-lignes dégénérées (< 2 points) plutôt que de
-          // laisser turf planter sur toute la surcouche pour UN tronçon corrompu.
-          const sousLignesValides = (geom.coordinates || []).filter(c => c && c.length >= 2);
-          if (sousLignesValides.length === 0) { ignores++; return; }
-          const longueurs = sousLignesValides.map(c => turf.length(turf.lineString(c), { units: 'kilometers' }));
-          const totalKm = longueurs.reduce((a, b) => a + b, 0) || 1;
-          sousLignesValides.forEach((c, i) => {
-            ajouterLigne(c, cout * (longueurs[i] / totalKm), numero, idxOriginal, longueurs[i]);
-          });
-        } else {
-          ignores++;
-        }
-      });
-
-      if (ignores > 0) log('PEAGE', `${ignores} tronçon(s) ignoré(s) (géométrie invalide ou vide dans le geojson).`, true);
-      log('PEAGE', `Index péage construit : ${lines.length} tronçons.`);
-      return { lines, grid };
-    }
-
-    /* Renvoie le tronçon payant le plus proche d'un point (lat, lng), ou
-       null si aucun tronçon n'est présent dans son voisinage indexé. */
-    function tollLeProchePoint(lat, lng) {
-      if (!tollIndex || tollIndex.lines.length === 0) return null;
-
-      const cx = Math.floor(lng / GRID_CELL_DEG);
-      const cy = Math.floor(lat / GRID_CELL_DEG);
-      const candidats = new Set();
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          const key = `${cx + dx}_${cy + dy}`;
-          const bucket = tollIndex.grid.get(key);
-          if (bucket) bucket.forEach(i => candidats.add(i));
-        }
-      }
-      if (candidats.size === 0) return null;
-
-      const pt = turf.point([lng, lat]);
-      let meilleur = null, meilleureDist = Infinity;
-      candidats.forEach(idx => {
-        const ligne = tollIndex.lines[idx];
-        const d = turf.pointToLineDistance(pt, ligne.turfLine, { units: 'meters' });
-        if (d < meilleureDist) { meilleureDist = d; meilleur = ligne; }
-      });
-
-      if (meilleureDist > TOLERANCE_MATCH_METRES) return null;
-      return meilleur;
-    }
-
-    
-    /* --- CALCUL DU COÛT PÉAGE PAR MATCHING GÉOMÉTRIQUE ---
-       Pour chaque segment du tracé Valhalla, on cherche le tronçon payant le
-       plus proche dans la surcouche BD Carto. S'il est à moins de
-       TOLERANCE_MATCH_METRES, ce tronçon est marqué "traversé". Aucun coût
-       n'est calculé ici : chaque tronçon BD Carto porte déjà son propre
-       cout_troncon_eur (figé lors de la génération du geojson) - on se
-       contente de sommer les coûts des tronçons DISTINCTS traversés
-       (idTroncon dédupliqué, pour ne jamais compter deux fois un même
-       tronçon revisité par plusieurs points successifs du tracé). Aucun
-       match trouvé = segment gratuit (BD Carto fait foi). */
-    /* Le cross-check par nom d'autoroute (comparer aux street_names des
-       manœuvres) a été retiré : trace_attributes tranche déjà, edge par
-       edge, ce qui est réellement payant - BD Carto ne sert plus qu'à
-       retrouver le tarif des segments déjà confirmés payants, plus à les
-       détecter elle-même. */
-
-    /* --- COLORATION DES PORTIONS PAYANTES : approximation depuis les
-       manœuvres (imprécis - une manœuvre "toll:true" peut couvrir un long
-       tronçon en grande partie gratuit, ex. A75). Gardée uniquement comme
-       repli si l'appel trace_attributes ci-dessous échoue. */
-    function extraireSegmentsPeageValhalla(legs) {
-      const segments = [];
-      const pointsPayants = [];
-      (legs || []).forEach(leg => {
-        const legCoords = decodePolyline(leg.shape, 6); // [lat, lng], déjà au format Leaflet
-        leg.maneuvers.forEach(mvr => {
-          if (mvr.toll === true && mvr.begin_shape_index != null && mvr.end_shape_index != null) {
-            const portion = legCoords.slice(mvr.begin_shape_index, mvr.end_shape_index + 1);
-            segments.push(portion);
-            const numero = extraireNumeroAutoroute(mvr.street_names);
-            portion.forEach(([lat, lon]) => pointsPayants.push({ lat, lon, numero }));
-          }
-        });
-      });
-      return { segments, pointsPayants };
-    }
-
-    /* --- COLORATION PRÉCISE : trace_attributes, au tronçon (edge) près ---
-       Renvoie chaque arête du graphe routier réellement traversée, avec son
-       propre attribut toll:true/false individuel - contrairement au champ
-       toll d'une manœuvre (qui peut couvrir un long tronçon en grande
-       partie gratuit, ex. A75 hors viaduc de Millau), ici chaque arête est
-       évaluée séparément. On ne demande QUE edge.toll/length/names via
-       filters, pour garder la réponse légère malgré le grand nombre de
-       points sur un long trajet. shape_match:"map_snap" (pas "edge_walk",
-       plus rapide mais qui NE renvoie PAS matched_points - uniquement
-       documenté pour map_snap - or c'est cette corrélation point<->arête
-       dont on a besoin pour reconstruire les segments payants). */
-    const RE_NUMERO_AUTOROUTE = /^A\s?(\d{1,3})[a-zA-Z]?$/;
-    function extraireNumeroAutoroute(noms) {
-      for (const n of (noms || [])) {
-        const m = (n || '').trim().match(RE_NUMERO_AUTOROUTE);
-        if (m) return `A${m[1]}`;
-      }
-      return null;
-    }
-
-    function haversineMetres(lat1, lon1, lat2, lon2) {
-      const R = 6371000;
+    function haversineKm(lat1, lon1, lat2, lon2) {
+      const R = 6371;
       const toRad = d => d * Math.PI / 180;
       const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
       const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
       return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
-    // Réduit le nombre de points envoyés à trace_attributes : on n'a besoin
-    // que des transitions payant/gratuit, pas d'une précision au mètre -
-    // un point tous les ~150m suffit largement et allège beaucoup le calcul
-    // de map-matching côté serveur sur un long trajet.
-    const DISTANCE_MIN_SOUS_ECHANTILLON_M = 150;
-    function sousEchantillonner(coords) {
-      if (coords.length <= 2) return coords;
-      const reduit = [coords[0]];
-      let dernier = coords[0];
-      for (let i = 1; i < coords.length - 1; i++) {
-        if (haversineMetres(dernier[0], dernier[1], coords[i][0], coords[i][1]) >= DISTANCE_MIN_SOUS_ECHANTILLON_M) {
-          reduit.push(coords[i]);
-          dernier = coords[i];
-        }
-      }
-      reduit.push(coords[coords.length - 1]); // toujours garder le point final
-      return reduit;
+    /* --- TARIFS PAR ROUTE (synthese_par_route.csv) ---
+       Chargé une fois au démarrage : numero_route -> cout_km. Les entrées
+       composées (ex "A40/A42", des bretelles à coût quasi nul) sont
+       écartées à la lecture, pour rester simple. */
+    // Normalisation commune pour comparer un numéro de route quelle que soit
+    // sa source (CSV sans espace "A13" vs GraphHopper avec espace "A 13").
+    function normaliserNumeroRoute(s) {
+      return (s || '').toUpperCase().replace(/\s+/g, '');
     }
 
-    async function extraireSegmentsPeageTraceAttributes(routeCoordsComplet) {
-      const t0 = performance.now();
-      const routeCoords = sousEchantillonner(routeCoordsComplet);
-      const shape = routeCoords.map(([lat, lon]) => ({ lat, lon }));
+    let tarifsRoutes = new Map();
+    async function chargerTarifsRoutes() {
+      try {
+        const res = await fetch('./synthese_par_route.csv');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const texte = await res.text();
+        const lignes = texte.trim().split('\n');
+        const entetes = lignes[0].split(';').map(h => h.trim());
+        const idxNumero = entetes.indexOf('numero_route');
+        const idxCoutKm = entetes.indexOf('cout_km');
+        for (let i = 1; i < lignes.length; i++) {
+          const cols = lignes[i].split(';');
+          const numero = (cols[idxNumero] || '').trim();
+          if (!numero || numero.includes('/')) continue; // bretelles composées écartées
+          const coutKm = parseFloat(cols[idxCoutKm]);
+          if (numero && !isNaN(coutKm)) tarifsRoutes.set(normaliserNumeroRoute(numero), coutKm);
+        }
+        log('PEAGE', `Tarifs chargés : ${tarifsRoutes.size} routes.`);
+      } catch (err) {
+        log('PEAGE', `Échec du chargement des tarifs : ${err.message}`, true);
+      }
+    }
 
-      const body = {
-        shape,
-        costing: 'auto',
-        shape_match: 'map_snap', // edge_walk ne renvoie pas matched_points (uniquement documenté pour map_snap) - un peu plus lent, mais nécessaire pour corréler points<->arêtes
-        filters: { attributes: ['edge.toll', 'edge.length', 'edge.names', 'matched.point', 'matched.edge_index', 'matched.type'], action: 'include' }
+    /* --- SURCOUCHE VISUELLE (troncons_filtres.geojson) ---
+       Purement décorative désormais (couche "Routes payantes" du menu
+       calques) - plus aucun lien avec la détection ni le calcul du coût,
+       qui viennent entièrement de la réponse GraphHopper. */
+    let tollDataLoaded = false;
+    let tollDataLoadingPromise = null;
+    function ensureTollDataLoaded() {
+      if (tollDataLoadingPromise) return tollDataLoadingPromise;
+      const t0 = performance.now();
+      log('PEAGE', 'Chargement de la surcouche visuelle démarré...');
+      tollDataLoadingPromise = fetch('./troncons_filtres.geojson')
+        .then(res => {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.json();
+        })
+        .then(geoData => {
+          tollLayer.addData(geoData);
+          tollDataLoaded = true;
+          log('PEAGE', `Surcouche visuelle chargée : ${geoData.features.length} tronçons en ${Math.round(performance.now() - t0)} ms.`);
+        })
+        .catch(err => {
+          log('PEAGE', `Échec du chargement de la surcouche visuelle : ${err.message}`, true);
+          tollDataLoadingPromise = null;
+        });
+      return tollDataLoadingPromise;
+    }
+
+    function tollEstPayant(valeur) {
+      if (valeur == null) return false;
+      if (typeof valeur === 'boolean') return valeur;
+      return String(valeur).toLowerCase() !== 'no';
+    }
+
+    /* --- CALCUL DU PÉAGE : 100% depuis la réponse GraphHopper, un seul
+       appel réseau (celui du calcul d'itinéraire lui-même) ---
+       path.details.toll et path.details.street_ref sont deux découpages
+       en intervalles [début, fin, valeur] du même tableau de points
+       (path.points.coordinates). On fusionne leurs frontières pour obtenir
+       des intervalles atomiques où le statut péage ET le numéro de route
+       sont constants - une même zone payante peut ainsi chevaucher deux
+       numéros différents (ex: A41 puis A43) sans erreur d'attribution.
+       Un intervalle payant sans numéro identifiable (trou "None", souvent
+       aux jonctions/bretelles) est affiché tel quel comme "segment non
+       identifié", coût 0€ - jamais estimé à l'aveugle, juste rendu visible. */
+    function calculerCoutPeage(path, tarifs) {
+      const details = path.details || {};
+      const tollArr = details.toll || [];
+      const refArr = details.street_ref || [];
+      const coords = (path.points && path.points.coordinates || []).map(([lon, lat]) => [lat, lon]); // -> [lat,lng]
+
+      log('PEAGE', `Diagnostic : details=${JSON.stringify(Object.keys(details))}, toll=${tollArr.length} intervalle(s), street_ref=${refArr.length} intervalle(s), ${coords.length} points.`);
+      if (tollArr.length > 0) log('PEAGE', `toll (brut) : ${JSON.stringify(tollArr)}`);
+
+      if (tollArr.length === 0 || coords.length < 2) {
+        log('PEAGE', 'Aucun intervalle "toll" dans la réponse (ou tracé vide) -> 0€ par construction.');
+        return { total: 0, detail: [], segments: [] };
+      }
+
+      const frontieres = new Set([0, coords.length - 1]);
+      tollArr.forEach(([s, e]) => { frontieres.add(s); frontieres.add(e); });
+      refArr.forEach(([s, e]) => { frontieres.add(s); frontieres.add(e); });
+      const bornes = Array.from(frontieres).sort((a, b) => a - b);
+
+      const tollAIndex = i => {
+        const e = tollArr.find(([s, e]) => i >= s && i < e);
+        return e ? tollEstPayant(e[2]) : false;
+      };
+      const refAIndex = i => {
+        const e = refArr.find(([s, e]) => i >= s && i < e);
+        return e ? e[2] : null;
       };
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
-      let response;
-      try {
-        response = await fetch(`${VALHALLA_BASE_URL}/trace_attributes`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-          signal: controller.signal
-        });
-      } catch (err) {
-        if (err.name === 'AbortError') throw new Error('délai dépassé (6s), serveur probablement surchargé');
-        throw err;
-      } finally {
-        clearTimeout(timeoutId);
-      }
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Échec de trace_attributes');
-
-      const edges = data.edges || [];
-      const matchedPoints = data.matched_points || [];
-      const nbPayantes = edges.filter(e => e.toll).length;
-      log('PEAGE', `trace_attributes : ${routeCoords.length}/${routeCoordsComplet.length} points envoyés (sous-échantillonné), ${edges.length} arêtes (${nbPayantes} payantes), ${matchedPoints.length} points appariés, en ${Math.round(performance.now() - t0)} ms.`);
-
-      // Deux structures séparées : "segments" (coordonnées pures [lat,lng],
-      // pour le dessin - Leaflet interprète un 3e élément d'un tableau comme
-      // une altitude, donc pas question d'y glisser le nom de la route) et
-      // "pointsPayants" (avec le nom associé à chaque point, pour le
-      // croisement avec BD Carto dans calculerCoutPeage).
+      const parRoute = {}; // numero -> { cout, km }
       const segments = [];
-      const pointsPayants = [];
       let segmentCourant = [];
-      matchedPoints.forEach(pt => {
-        const edge = (pt.edge_index != null) ? edges[pt.edge_index] : null;
-        if (edge && edge.toll) {
-          segmentCourant.push([pt.lat, pt.lon]);
-          pointsPayants.push({ lat: pt.lat, lon: pt.lon, numero: extraireNumeroAutoroute(edge.names) });
+      let dernierNumero;
+
+      for (let k = 0; k < bornes.length - 1; k++) {
+        const start = bornes[k], end = bornes[k + 1];
+        if (end <= start) continue;
+        const payant = tollAIndex(start);
+
+        if (payant) {
+          const numero = refAIndex(start) || '?';
+          let km = 0;
+          for (let i = start; i < end; i++) km += haversineKm(coords[i][0], coords[i][1], coords[i + 1][0], coords[i + 1][1]);
+          const cleTarif = normaliserNumeroRoute(numero);
+          const tarifTrouve = tarifs.has(cleTarif);
+          const tarif = tarifTrouve ? tarifs.get(cleTarif) : 0;
+          if (numero !== '?' && !tarifTrouve) {
+            log('PEAGE', `Tarif introuvable pour "${numero}" (clé normalisée "${cleTarif}") - 0€ appliqué par défaut.`, true);
+          }
+          const cout = km * tarif;
+
+          if (!parRoute[numero]) parRoute[numero] = { cout: 0, km: 0 };
+          parRoute[numero].cout += cout;
+          parRoute[numero].km += km;
+
+          const sousCoords = coords.slice(start, end + 1);
+          if (numero === dernierNumero && segmentCourant.length > 0) {
+            segmentCourant.push(...sousCoords.slice(1));
+          } else {
+            if (segmentCourant.length > 1) segments.push(segmentCourant);
+            segmentCourant = sousCoords.slice();
+          }
+          dernierNumero = numero;
         } else {
           if (segmentCourant.length > 1) segments.push(segmentCourant);
           segmentCourant = [];
+          dernierNumero = undefined;
         }
-      });
+      }
       if (segmentCourant.length > 1) segments.push(segmentCourant);
 
-      return { segments, pointsPayants };
-    }
-
-    /* BD Carto ne détecte plus rien elle-même : elle reçoit en entrée les
-       points DÉJÀ confirmés payants par trace_attributes (Valhalla), et se
-       contente d'aller chercher le tarif du tronçon le plus proche de
-       chaque point - fini les faux positifs de croisement/bretelle,
-       puisqu'on ne lui demande plus "est-ce payant ici ?" mais seulement
-       "combien ça coûte, sachant que c'est payant ?". En plus, si Valhalla
-       connaît le nom de la route à cet endroit (ex: "A6"), on vérifie qu'il
-       correspond bien au numéro du tronçon BD Carto le plus proche avant de
-       le retenir - évite d'accrocher par erreur le tronçon d'une autoroute
-       VOISINE mais différente (croisement, échangeur à proximité). */
-    function calculerCoutPeage(pointsPayants) {
-      if (!tollIndex) return { total: 0, detail: [], indexIndisponible: true };
-
-      const tronconsTraverses = new Map(); // idTroncon -> { numero, cout, km }
-      let ignoresPourNom = 0;
-
-      for (let i = 0; i < pointsPayants.length - 1; i++) {
-        const p1 = pointsPayants[i], p2 = pointsPayants[i + 1];
-        const midLat = (p1.lat + p2.lat) / 2, midLng = (p1.lon + p2.lon) / 2;
-
-        const troncon = tollLeProchePoint(midLat, midLng);
-        if (!troncon) continue;
-
-        // Croisement nom Valhalla <-> numéro BD Carto : seulement si les
-        // deux sont identifiés (sinon on n'a rien à comparer, on accepte).
-        const nomAttendu = p1.numero || p2.numero;
-        if (nomAttendu && troncon.numero !== '?' && troncon.numero !== nomAttendu) {
-          ignoresPourNom++;
-          continue;
-        }
-
-        if (!tronconsTraverses.has(troncon.idTroncon)) {
-          tronconsTraverses.set(troncon.idTroncon, { numero: troncon.numero, cout: troncon.cout, km: troncon.longueurKm || 0 });
-        }
-      }
-
-      if (ignoresPourNom > 0) {
-        log('PEAGE', `${ignoresPourNom} point(s) ignoré(s) : nom de route Valhalla ≠ numéro du tronçon BD Carto le plus proche (probable croisement d'autoroutes voisines).`);
-      }
-
       let total = 0;
-      const parAutoroute = {}; // { "A6": { cout: 4.4, km: 23.1 } }
-      tronconsTraverses.forEach(({ numero, cout, km }) => {
-        total += cout;
-        if (!parAutoroute[numero]) parAutoroute[numero] = { cout: 0, km: 0 };
-        parAutoroute[numero].cout += cout;
-        parAutoroute[numero].km += km;
-      });
+      Object.values(parRoute).forEach(v => total += v.cout);
 
-      const detail = Object.entries(parAutoroute)
+      const detail = Object.entries(parRoute)
         .map(([numero, v]) => ({ numero, cout: v.cout, km: v.km }))
         .sort((a, b) => b.cout - a.cout);
 
-      return { total, detail };
+      log('PEAGE', `Résultat : total=${total.toFixed(2)}€, ${detail.length} route(s), ${segments.length} segment(s) à colorier.`);
+      if (detail.length > 0) log('PEAGE', `Détail : ${JSON.stringify(detail)}`);
+
+      return { total, detail, segments };
     }
 
     function setGeocoder(engine) {
@@ -1142,32 +997,6 @@
       }
     });
 
-    let tollDataLoaded = false;
-    let tollDataLoadingPromise = null;
-
-    function ensureTollDataLoaded() {
-      if (tollDataLoadingPromise) return tollDataLoadingPromise;
-      const t0 = performance.now();
-      log('PEAGE', 'Chargement de la surcouche péages démarré...');
-      tollDataLoadingPromise = fetch('./autoroutes_payantes_surcouche.geojson')
-        .then(res => {
-          if (!res.ok) throw new Error("Fichier GeoJSON introuvable (HTTP " + res.status + ")");
-          return res.json();
-        })
-        .then(geoData => {
-          tollLayer.addData(geoData);
-          tollIndex = buildTollIndex(geoData);
-          tollDataLoaded = true;
-          const ms = Math.round(performance.now() - t0);
-          log('PEAGE', `Surcouche chargée : ${geoData.features.length} tronçons en ${ms} ms.`);
-        })
-        .catch(err => {
-          log('PEAGE', `Échec du chargement de la surcouche péages : ${err.message}`, true);
-          tollDataLoadingPromise = null; // permet de retenter plus tard
-        });
-      return tollDataLoadingPromise;
-    }
-
     /* --- CONTRÔLE DES CALQUES & ÉCHELLE --- */
     const baseLayers = { "OpenStreetMap.de": osmDeLayer };
     const overlayLayers = {
@@ -1204,6 +1033,7 @@
     L.control.scale({ metric: true, imperial: false, position: 'bottomleft' }).addTo(map);
 
     restaurerReglages();
+    chargerTarifsRoutes();
 
     /* --- BOUTON DE RECADRAGE AUTOMATIQUE --- */
     const FitBoundsControl = L.Control.extend({
@@ -1275,9 +1105,8 @@
     let peageHighlightLayer = L.polyline([], { color: '#ff1493', weight: 7, opacity: routeOpacity }); // portions payantes réellement empruntées, en surbrillance sur le tracé (même principe que gpxLinePast dans Roadbook VE)
     let decodedRouteCoords = [];
     let routeSummary = null;
-    let routeLegs = [];
-    let presomptionPeage = false; // présomption d'après le champ toll des manœuvres, cf. calculateRoute
-    let rawValhallaResponse = null;
+    let currentPath = null;        // path GraphHopper courant (instructions, details, points)
+    let rawRouteResponse = null;   // réponse brute complète (export JSON / envoi Roadbook)
 
     function closeAllSuggestions() {
       document.querySelectorAll('.suggestions').forEach(el => el.innerHTML = '');
@@ -1731,59 +1560,81 @@
         loadingEl.textContent = "Calcul de l'itinéraire en cours...";
       }
 
-      ensureTollDataLoaded(); // en parallèle : dispo pour le calcul du coût péage même sans afficher la couche
+      ensureTollDataLoaded(); // en parallèle : couche visuelle facultative, sans lien avec le calcul
 
       document.getElementById('loading').style.display = 'block';
       document.getElementById('route-summary').style.display = 'none';
 
-      const locations = [
-        { lat: routePoints.start.lat, lon: routePoints.start.lng, type: "break" },
-        ...routePoints.vias.filter(v => v !== null).map(v => ({ lat: v.lat, lon: v.lng, type: "through" })),
-        { lat: routePoints.end.lat, lon: routePoints.end.lng, type: "break" }
+      const points = [
+        [routePoints.start.lng, routePoints.start.lat],
+        ...routePoints.vias.filter(v => v !== null).map(v => [v.lng, v.lat]),
+        [routePoints.end.lng, routePoints.end.lat]
       ];
 
-      const autoOptions = {};
+      // Réglages -> custom_model GraphHopper
+      const priority = [];
+      const speedRules = [];
       const speedVal = document.getElementById('speed-limit-select').value;
-      if (speedVal !== 'none') autoOptions.top_speed = parseInt(speedVal, 10);
+      if (speedVal !== 'none') speedRules.push({ if: "true", limit_to: speedVal });
       if (document.getElementById('avoid-tolls-check').checked) {
-        autoOptions.use_tolls = 0.0;
-        autoOptions.toll_booth_penalty = 43200;
+        priority.push({ if: "toll == ALL || toll == HGV", multiply_by: "0.1" });
       }
       if (document.getElementById('avoid-highways-check').checked) {
-        autoOptions.use_highways = 0.0;
+        priority.push({ if: "road_class == MOTORWAY", multiply_by: "0.1" });
       }
+      const customModel = (priority.length > 0 || speedRules.length > 0)
+        ? { priority: priority.length ? priority : undefined, speed: speedRules.length ? speedRules : undefined }
+        : null;
 
       const payload = {
-        locations: locations,
-        costing: "auto",
-        costing_options: { auto: autoOptions },
-        directions_options: { language: "fr-FR" }
+        points,
+        profile: "car",
+        points_encoded: false,
+        details: ["street_ref", "toll"],
+        instructions: true,
+        locale: "fr",
+        elevation: false
       };
+      if (customModel) {
+        payload.custom_model = customModel;
+        payload['ch.disable'] = true; // custom_model incompatible avec le speed mode (Contraction Hierarchies)
+      }
 
-      log('ROUTE', `Calcul demandé : ${locations.length} points, options=${JSON.stringify(autoOptions)}`);
+      log('ROUTE', `Calcul demandé : ${points.length} points, custom_model=${JSON.stringify(customModel)}${customModel ? ' (ch.disable=true)' : ''}`);
 
       try {
         const t0 = performance.now();
-        const response = await fetch(`${VALHALLA_BASE_URL}/route`, {
+        let response = await fetch(`${GRAPHHOPPER_BASE_URL}/route?key=${GRAPHHOPPER_API_KEY}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
 
-        const data = await response.json();
-        if (!response.ok || !data.trip) throw new Error(data.status_message || "Impossible de calculer l'itinéraire.");
+        let data = await response.json();
 
-        log('ROUTE', `Réponse Valhalla reçue en ${Math.round(performance.now() - t0)} ms (${(data.trip.summary.length).toFixed(1)} km).`);
+        // Repli : compte gratuit -> mode flexible (nécessaire à custom_model)
+        // indisponible. On recalcule sans le réglage plutôt que d'échouer.
+        if (!response.ok && customModel && /flexible mode/i.test(data.message || '')) {
+          log('ROUTE', `custom_model refusé (${data.message}) - recalcul sans réglage personnalisé.`, true);
+          alert("Ton compte GraphHopper ne permet pas \"Éviter les péages\"/\"Éviter les grands axes\"/vitesse max (fonctionnalité réservée aux comptes payants). Calcul relancé sans ces réglages.");
+          delete payload.custom_model;
+          delete payload['ch.disable'];
+          response = await fetch(`${GRAPHHOPPER_BASE_URL}/route?key=${GRAPHHOPPER_API_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          data = await response.json();
+        }
 
-        // Pré-filtre : présomption de péage basée sur le champ toll des
-        // manœuvres (imprécis sur l'étendue exacte, mais fiable pour dire
-        // "il y en a au moins un quelque part") - évite d'appeler
-        // trace_attributes (coûteux côté serveur) sur un trajet 100% gratuit.
-        presomptionPeage = data.trip.legs.some(leg => leg.maneuvers.some(mvr => mvr.toll === true));
-        log('PEAGE', presomptionPeage ? 'Présomption de péage détectée (au moins une manœuvre toll:true).' : 'Aucune présomption de péage - trace_attributes sera sauté.');
+        if (!response.ok || !data.paths || data.paths.length === 0) {
+          throw new Error(data.message || "Impossible de calculer l'itinéraire.");
+        }
 
-        rawValhallaResponse = data;
-        await processValhallaResponse(data);
+        log('ROUTE', `Réponse GraphHopper reçue en ${Math.round(performance.now() - t0)} ms (${(data.paths[0].distance / 1000).toFixed(1)} km).`);
+
+        rawRouteResponse = data;
+        await processRouteResponse(data.paths[0]);
       } catch (error) {
         log('ROUTE', `Erreur de calcul : ${error.message}`, true);
         alert(`Erreur : ${error.message}`);
@@ -1792,32 +1643,23 @@
       }
     }
 
-    async function processValhallaResponse(data) {
-      routeSummary = data.trip.summary;
-      routeLegs = data.trip.legs;
-      decodedRouteCoords = [];
-
-      routeLegs.forEach(leg => {
-        decodedRouteCoords = decodedRouteCoords.concat(decodePolyline(leg.shape, 6));
-      });
+    async function processRouteResponse(path) {
+      currentPath = path;
+      routeSummary = { length: path.distance / 1000, time: path.time / 1000 };
+      decodedRouteCoords = (path.points.coordinates || []).map(([lon, lat]) => [lat, lon]); // -> [lat,lng]
 
       if (routeLayer) map.removeLayer(routeLayer);
       routeLayer = L.polyline(decodedRouteCoords, { color: '#2980b9', weight: 6, opacity: routeOpacity }).addTo(map);
 
       map.fitBounds(routeLayer.getBounds(), { padding: [40, 40] });
 
-      // Attend la fin du chargement de la surcouche péages avant d'afficher
-      // les résultats - le fetch a été lancé en parallèle plus tôt (dans
-      // calculateRoute ou au moins ici), donc si c'est déjà fini ça ne coûte
-      // rien ; sinon on patiente le temps qu'il faut plutôt que d'afficher
-      // "N/D" à tort.
-      log('PEAGE', tollIndex ? 'Surcouche déjà prête, calcul du péage immédiat.' : 'Attente de la surcouche péages avant affichage...');
-      await ensureTollDataLoaded();
-      log('PEAGE', tollIndex ? 'Index péage disponible, calcul en cours.' : 'Index péage TOUJOURS indisponible après attente (voir erreur ci-dessus).', !tollIndex);
-      displayInstructions(); // pas d'await : la Phase A (immédiate) suffit ici, la Phase B (péage) continue en tâche de fond
+      // Le péage ne dépend plus d'aucune donnée externe (tout vient de la
+      // réponse GraphHopper déjà en main) - la surcouche visuelle continue
+      // de charger en parallèle si besoin, mais on ne l'attend plus.
+      displayInstructions();
     }
 
-    async function displayInstructions() {
+    function displayInstructions() {
       const summaryDiv = document.getElementById('route-summary');
       const statsDiv = document.getElementById('route-stats');
       const listDiv = document.getElementById('instructions-list');
@@ -1825,11 +1667,11 @@
 
       const evitementActif = document.getElementById('avoid-tolls-check').checked;
 
-      // --- PHASE A : affichage immédiat, ne dépend d'aucun appel réseau
-      // supplémentaire (trace_attributes peut prendre plusieurs secondes sur
-      // un long trajet - pas de raison de faire attendre distance/durée/
-      // instructions, qui sont déjà connues à ce stade). ---
-      const peageInitial = !presomptionPeage ? (evitementActif ? 'Sans péage' : 'Gratuit') : '…';
+      // Calcul du péage : 100% depuis la réponse GraphHopper (street_ref +
+      // toll), aucun appel réseau supplémentaire, synchrone.
+      const peage = calculerCoutPeage(currentPath, tarifsRoutes);
+      const peageValue = evitementActif ? 'Sans péage' : (peage.total > 0.01 ? `${Math.ceil(peage.total)} €` : 'Gratuit');
+
       statsDiv.innerHTML = `
         <div class="stats-row">
           <div class="stat-block">
@@ -1842,77 +1684,19 @@
           </div>
           <div class="stat-block stat-toll">
             <div class="stat-label">Péage</div>
-            <div class="stat-value" id="peage-stat-value">${peageInitial}</div>
+            <div class="stat-value">${peageValue}</div>
           </div>
         </div>
       `;
 
-      detailEl.textContent = '';
-      detailEl.style.display = 'none';
-      peageHighlightLayer.setLatLngs([]);
-      map.removeLayer(peageHighlightLayer);
-
-      listDiv.innerHTML = '';
-      routeLegs.forEach((leg) => {
-        leg.maneuvers.forEach((step) => {
-          const item = document.createElement('div');
-          item.className = 'step-item';
-          const distMeters = Math.round(step.length * 1000);
-          const distStr = distMeters >= 1000 ? `${(distMeters / 1000).toFixed(1)} km` : `${distMeters} m`;
-          item.innerHTML = `
-            <span class="step-dot"></span>
-            <span class="step-text">${step.instruction}</span>
-            <span class="step-dist">${distStr}</span>
-          `;
-          listDiv.appendChild(item);
-        });
-      });
-
-      summaryDiv.style.display = 'block';
-      const summaryText = document.getElementById('summaryText');
-      summaryText.innerHTML = `${routeSummary.length.toFixed(1)} km · ${formatDuration(routeSummary.time)}`;
-
-      // Le résultat prime : on repasse en position milieu (résultats + carte visibles) et on amène les résultats en vue
-      if (sheetState === 'low' || sheetState === 'high') setSheetState('mid');
-      setTimeout(() => summaryDiv.scrollIntoView({ block: 'start', behavior: 'smooth' }), 150);
-
-      // --- PHASE B : péage, en tâche de fond. Sautée entièrement si aucune
-      // présomption (trajet 100% gratuit selon Valhalla) - inutile de
-      // solliciter trace_attributes pour rien. ---
-      if (!presomptionPeage) {
-        log('PEAGE', 'Aucune présomption de péage sur ce trajet, trace_attributes sauté.');
-        return;
-      }
-
-      let segmentsPeage, pointsPayants;
-      try {
-        ({ segments: segmentsPeage, pointsPayants } = await extraireSegmentsPeageTraceAttributes(decodedRouteCoords));
-      } catch (err) {
-        log('PEAGE', `trace_attributes indisponible (${err.message}), repli sur l'approximation par manœuvre.`, true);
-        ({ segments: segmentsPeage, pointsPayants } = extraireSegmentsPeageValhalla(routeLegs));
-      }
-
-      // BD Carto n'intervient qu'ici, pour retrouver le tarif des points déjà
-      // confirmés payants ci-dessus, en vérifiant au passage que le nom de
-      // route donné par Valhalla correspond bien au tronçon BD Carto le plus
-      // proche (évite d'accrocher une autoroute voisine lors d'un
-      // croisement/échangeur).
-      const peage = calculerCoutPeage(pointsPayants);
-      const peageValue = peage.indexIndisponible
-        ? 'N/D'
-        : (evitementActif ? 'Sans péage' : (peage.total > 0.01 ? `${Math.ceil(peage.total)} €` : 'Gratuit'));
-
-      const peageStatEl = document.getElementById('peage-stat-value');
-      if (peageStatEl) peageStatEl.textContent = peageValue;
-
-      // Coloration magenta : les mêmes segments géométriques utilisés pour
+      // Coloration magenta : les mêmes segments GraphHopper utilisés pour
       // repérer les points du coût ci-dessus - garantit que ce qui est
       // affiché en couleur et ce qui est compté dans le total proviennent
-      // de la même détection Valhalla.
+      // exactement de la même détection.
       // Une seule polyline multi-segments mise à jour via setLatLngs, même
       // principe que gpxLinePast/gpxLineFuture dans Roadbook VE.
-      if (!evitementActif && segmentsPeage.length > 0) {
-        peageHighlightLayer.setLatLngs(segmentsPeage);
+      if (!evitementActif && peage.segments.length > 0) {
+        peageHighlightLayer.setLatLngs(peage.segments);
         // Retrait puis réajout systématique : routeLayer est recréé de zéro à
         // chaque recalcul (donc toujours réinséré tout en haut), alors qu'un
         // simple .addTo(map) sur une couche déjà présente ne la déplace pas -
@@ -1920,11 +1704,14 @@
         // surbrillance resterait sous le nouveau tracé bleu.
         map.removeLayer(peageHighlightLayer);
         peageHighlightLayer.addTo(map);
+      } else {
+        peageHighlightLayer.setLatLngs([]);
+        map.removeLayer(peageHighlightLayer);
       }
 
       if (peage.detail.length > 0) {
         const noteResiduel = evitementActif
-          ? '⚠️ Résiduel malgré "Éviter les péages" (probablement en flux libre, non détectable par Valhalla) : '
+          ? '⚠️ Résiduel malgré "Éviter les péages" : '
           : '';
         const detailStr = peage.detail
           .map(d => {
@@ -1934,13 +1721,35 @@
           .join(' · ');
         detailEl.textContent = noteResiduel + detailStr;
         detailEl.style.display = 'block';
+      } else {
+        detailEl.textContent = '';
+        detailEl.style.display = 'none';
       }
 
-      // Complète la barre résumée compacte avec le péage, une fois connu
-      if (!evitementActif && peage.total > 0.01) {
-        summaryText.innerHTML += ` · <span style="color:var(--accent)">${Math.ceil(peage.total)} €</span>`;
-      }
+      listDiv.innerHTML = '';
+      (currentPath.instructions || []).forEach((step) => {
+        const item = document.createElement('div');
+        item.className = 'step-item';
+        const distMeters = Math.round(step.distance);
+        const distStr = distMeters >= 1000 ? `${(distMeters / 1000).toFixed(1)} km` : `${distMeters} m`;
+        item.innerHTML = `
+          <span class="step-dot"></span>
+          <span class="step-text">${step.text}</span>
+          <span class="step-dist">${distStr}</span>
+        `;
+        listDiv.appendChild(item);
+      });
+
+      summaryDiv.style.display = 'block';
+      const summaryText = document.getElementById('summaryText');
+      summaryText.innerHTML = `${routeSummary.length.toFixed(1)} km · ${formatDuration(routeSummary.time)}` +
+        (!evitementActif && peage.total > 0.01 ? ` · <span style="color:var(--accent)">${Math.ceil(peage.total)} €</span>` : '');
+
+      // Le résultat prime : on repasse en position milieu (résultats + carte visibles) et on amène les résultats en vue
+      if (sheetState === 'low' || sheetState === 'high') setSheetState('mid');
+      setTimeout(() => summaryDiv.scrollIntoView({ block: 'start', behavior: 'smooth' }), 150);
     }
+
 
     function importJSON(event) {
       const file = event.target.files[0];
@@ -1951,22 +1760,13 @@
       reader.onload = async function(e) {
         try {
           const data = JSON.parse(e.target.result);
-          if (data.trip && data.trip.locations) {
-            rawValhallaResponse = data;
-            const locs = data.trip.locations;
-            
-            const startLoc = locs[0];
-            const endLoc = locs[locs.length - 1];
-
-            setPoint('start', L.latLng(startLoc.lat, startLoc.lon), `${startLoc.lat.toFixed(5)}, ${startLoc.lon.toFixed(5)}`);
-            setPoint('end', L.latLng(endLoc.lat, endLoc.lon), `${endLoc.lat.toFixed(5)}, ${endLoc.lon.toFixed(5)}`);
-            
-            routePoints.vias = locs.slice(1, -1).map(l => L.latLng(l.lat, l.lon));
-            renderViaInputs();
-            log('IMPORT', `Import réussi : ${locs.length} points.`);
-            await processValhallaResponse(data);
+          if (data.paths && data.paths.length > 0) {
+            // Format GraphHopper natif (seul format supporté).
+            rawRouteResponse = data;
+            await processRouteResponse(data.paths[0]);
+            log('IMPORT', `Import réussi (format GraphHopper) : ${data.paths[0].points.coordinates.length} points.`);
           } else {
-            throw new Error("Format non supporté.");
+            throw new Error("Format non supporté (JSON GraphHopper attendu).");
           }
         } catch (err) {
           log('IMPORT', `Échec : ${err.message}`, true);
@@ -1994,22 +1794,23 @@
     }
 
     function exportJSON() {
-      if (!rawValhallaResponse) return;
-      const blob = new Blob([JSON.stringify(rawValhallaResponse, null, 2)], { type: 'application/json' });
+      if (!rawRouteResponse) return;
+      const blob = new Blob([JSON.stringify(rawRouteResponse, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = 'itineraire.json';
       a.click();
       URL.revokeObjectURL(url);
-      log('EXPORT', 'JSON Valhalla exporté.');
+      log('EXPORT', 'JSON (format brut GraphHopper) exporté.');
     }
 
     // --- PONT DE COMMUNICATION VERS ROADBOOK VE (via localStorage) ---
+    // Envoie la réponse GraphHopper brute (format natif attendu par Roadbook VE).
     const HANDOFF_KEY = 'current_route_data';
 
     function sendToRoadbook() {
-      if (!rawValhallaResponse) {
+      if (!rawRouteResponse) {
         alert("Veuillez d'abord calculer un itinéraire avant de l'envoyer vers Roadbook VE.");
         return;
       }
@@ -2017,12 +1818,12 @@
         const payload = {
           type: 'json',
           filename: 'itineraire.json',
-          content: JSON.stringify(rawValhallaResponse),
+          content: JSON.stringify(rawRouteResponse),
           source: 'georouter',
           ts: Date.now()
         };
         localStorage.setItem(HANDOFF_KEY, JSON.stringify(payload));
-        log('ENVOI', 'Itinéraire transmis vers Roadbook VE, redirection...');
+        log('ENVOI', 'Itinéraire transmis vers Roadbook VE (format brut GraphHopper), redirection...');
         window.location.href = './roadbook.html';
       } catch (err) {
         log('ENVOI', `Échec de la transmission : ${err.message}`, true);
@@ -2030,21 +1831,6 @@
       }
     }
 
-    function decodePolyline(str, precision) {
-      let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null;
-      let factor = Math.pow(10, precision || 5);
-      while (index < str.length) {
-        byte = null; shift = 0; result = 0;
-        do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
-        let latitude = ((result & 1) ? ~(result >> 1) : (result >> 1));
-        lat += latitude; shift = 0; result = 0;
-        do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
-        let longitude = ((result & 1) ? ~(result >> 1) : (result >> 1));
-        lng += longitude;
-        coordinates.push([lat / factor, lng / factor]);
-      }
-      return coordinates;
-    }
   </script>
 </body>
 </html>

@@ -335,7 +335,7 @@
               <img class="icon-dark-theme" src="icons/light/direction_depart.png" alt="">
             </div>
             <p class="empty-state-title">Aucune trace chargée</p>
-            <p class="empty-state-sub">Importez un fichier GPX ou JSON Valhalla pour démarrer</p>
+            <p class="empty-state-sub">Importez un fichier GPX ou JSON d'itinéraire pour démarrer</p>
             <div class="empty-state-actions">
               <button class="btn-primary-wide" onclick="handleInlineImportClick()">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
@@ -599,34 +599,6 @@ function handleInlineImportClick() {
 function handleInlineLogClick() {
     toggleLogs();
     closeSettingsPanel();
-}
-
-function decodeValhallaPolyline(str, precision = 6) {
-    let index = 0, lat = 0, lng = 0, coordinates = [];
-    const factor = Math.pow(10, precision);
-
-    while (index < str.length) {
-        let byte = null, shift = 0, result = 0;
-        do {
-            byte = str.charCodeAt(index++) - 63;
-            result |= (byte & 0x1f) << shift;
-            shift += 5;
-        } while (byte >= 0x20);
-        let deltaLat = ((result & 1) ? ~(result >> 1) : (result >> 1));
-        lat += deltaLat;
-
-        shift = 0; result = 0;
-        do {
-            byte = str.charCodeAt(index++) - 63;
-            result |= (byte & 0x1f) << shift;
-            shift += 5;
-        } while (byte >= 0x20);
-        let deltaLng = ((result & 1) ? ~(result >> 1) : (result >> 1));
-        lng += deltaLng;
-
-        coordinates.push([lat / factor, lng / factor]);
-    }
-    return coordinates;
 }
 
 async function requestWakeLock() {
@@ -1312,32 +1284,30 @@ function parseGPXTrace(xmlString) {
 }
 
 function parseJSONTrace(jsonString) {
-    log("VALHALLA", "Analyse au format JSON/GeoJSON...");
     try {
         const data = JSON.parse(jsonString);
         let coords = [];
 
-        if (data.trip && data.trip.legs) {
-            data.trip.legs.forEach(leg => {
-                const decoded = leg.shape ? decodeValhallaPolyline(leg.shape, 6) : [];
-                const baseIndex = coords.length;
-                coords = coords.concat(decoded);
+        if (data.paths && data.paths.length > 0) {
+            // --- Format GraphHopper (seul format JSON supporté) ---
+            log("IMPORT", "Analyse au format GraphHopper...");
+            const path = data.paths[0];
+            coords = (path.points && path.points.coordinates || []).map(([lon, lat]) => [lat, lon]);
 
-                if (leg.maneuvers && Array.isArray(leg.maneuvers)) {
-                    leg.maneuvers.forEach(m => {
-                        const ptIndex = baseIndex + (m.begin_shape_index || 0);
-                        roadbookManeuvers.push({
-                            instruction: m.instruction || "Continuer",
-                            street: (m.street_names || []).join(', '),
-                            length: m.length || 0,
-                            type: typeof m.type === 'number' ? m.type : null,
-                            shapeIndex: ptIndex,
-                            km: 0
-                        });
-                    });
-                }
+            (path.instructions || []).forEach((step, i) => {
+                const ptIndex = step.interval ? step.interval[0] : 0;
+                roadbookManeuvers.push({
+                    instruction: step.text || "Continuer",
+                    street: "", // GraphHopper ne fournit pas de nom de rue distinct par instruction
+                    length: (step.distance || 0) / 1000, // mètres -> km
+                    sign: step.sign,
+                    isDepart: i === 0,
+                    isArrive: i === (path.instructions.length - 1),
+                    shapeIndex: ptIndex,
+                    km: 0
+                });
             });
-        } 
+        }
         else if (data.features && data.features[0] && data.features[0].geometry) {
             const geom = data.features[0].geometry;
             if (geom.type === "LineString") {
@@ -1363,7 +1333,7 @@ function parseJSONTrace(jsonString) {
         });
 
     } catch (e) {
-        log("VALHALLA", "Erreur lors du décodage du JSON : " + e.message, true);
+        log("IMPORT", "Erreur lors du décodage du JSON : " + e.message, true);
     }
 }
 
@@ -1721,45 +1691,52 @@ function fetchLiveQualicharge() {
 // Fichiers archivés dans le repo sous icons/dark/ (icônes noires, thème clair)
 // et icons/light/ (icônes blanches, thème sombre) — voir <img class="icon-light-theme">
 // et <img class="icon-dark-theme"> ci-dessous, basculées automatiquement en CSS
-// via prefers-color-scheme. kUturnLeft (13) réutilise le PNG de kUturnRight (12),
-// reflété en CSS ; kRoundaboutExit (27) réutilise l'icône de kRoundaboutEnter (26).
-const VALHALLA_MANEUVER_ICON_FILES = {
-  1: "direction_depart.png",
-  2: "direction_depart_right.png",
-  3: "direction_depart_left.png",
-  4: "direction_arrive.png",
-  5: "direction_arrive_right.png",
-  6: "direction_arrive_left.png",
-  7: "direction_new_name_straight.png",
-  8: "direction_continue_straight.png",
-  9: "direction_turn_slight_right.png",
-  10: "direction_turn_right.png",
-  11: "direction_turn_sharp_right.png",
-  12: "direction_uturn.png",
-  13: "direction_uturn.png",
-  14: "direction_turn_sharp_left.png",
-  15: "direction_turn_left.png",
-  16: "direction_turn_slight_left.png",
-  17: "direction_on_ramp_straight.png",
-  18: "direction_on_ramp_right.png",
-  19: "direction_on_ramp_left.png",
-  20: "direction_off_ramp_right.png",
-  21: "direction_off_ramp_left.png",
-  22: "direction_fork_straight.png",
-  23: "direction_fork_right.png",
-  24: "direction_fork_left.png",
-  25: "direction_merge_straight.png",
-  26: "direction_roundabout.png",
-  27: "direction_roundabout.png",
-  37: "direction_merge_right.png",
-  38: "direction_merge_left.png",
+// via prefers-color-scheme.
+/* --- Icônes GraphHopper (champ "sign") ---
+   Table officielle complète (docs.graphhopper.com), recoupée avec le set
+   d'icônes déjà présent dans ce repo (icons/dark, icons/light) - certaines
+   correspondances sont approximatives faute d'icône dédiée exacte :
+   - "keep left/right" (-7/7) -> icônes fork_left/right (le plus proche sémantiquement)
+   - "via reached" (5) -> icône arrive (pas d'icône "étape" dédiée dans ce set)
+   - tous les demi-tours (-98/-8/8) -> seule icône uturn disponible, mirroir CSS pour la gauche
+   - entrée ET sortie de rond-point (-6/6) -> une seule icône générique, sans distinction
+     d'angle/sortie (GraphHopper fournit turn_angle mais on ne l'exploite pas ici) */
+const GRAPHHOPPER_MANEUVER_ICON_FILES = {
+  '-98': "direction_uturn.png",
+  '-8':  "direction_uturn.png",
+  '-7':  "direction_fork_left.png",
+  '-6':  "direction_roundabout.png", // réservé, non émis en pratique par GraphHopper
+  '-3':  "direction_turn_sharp_left.png",
+  '-2':  "direction_turn_left.png",
+  '-1':  "direction_turn_slight_left.png",
+  '0':   "direction_continue_straight.png",
+  '1':   "direction_turn_slight_right.png",
+  '2':   "direction_turn_right.png",
+  '3':   "direction_turn_sharp_right.png",
+  '4':   "direction_arrive.png",
+  '5':   "direction_arrive.png",
+  '6':   "direction_roundabout.png",
+  '7':   "direction_fork_right.png",
+  '8':   "direction_uturn.png",
 };
 
 // Rend les deux <img> (icône claire/sombre) d'une manœuvre ; la bascule entre les deux
-// se fait en CSS pur (.icon-light-theme / .icon-dark-theme). kUturnLeft (13) est reflété.
-function maneuverIconImg(type) {
-    const file = VALHALLA_MANEUVER_ICON_FILES[type] || VALHALLA_MANEUVER_ICON_FILES[8];
-    const mirrorStyle = type === 13 ? ' style="transform:scaleX(-1)"' : '';
+// se fait en CSS pur (.icon-light-theme / .icon-dark-theme).
+// Le cas départ/arrivée est géré par POSITION (m.isDepart / m.isArrive) plutôt que
+// par code, sinon on se base directement sur m.sign (GraphHopper).
+function maneuverIconImg(m) {
+    let file, mirror = false;
+
+    if (m.isDepart) {
+        file = "direction_depart.png";
+    } else if (m.isArrive) {
+        file = "direction_arrive.png";
+    } else {
+        file = GRAPHHOPPER_MANEUVER_ICON_FILES[String(m.sign)] || GRAPHHOPPER_MANEUVER_ICON_FILES['0'];
+        mirror = (m.sign === -8 || m.sign === -98); // demi-tour gauche/inconnu -> icône unique reflétée
+    }
+
+    const mirrorStyle = mirror ? ' style="transform:scaleX(-1)"' : '';
     return `<img class="icon-light-theme" src="icons/dark/${file}" alt=""${mirrorStyle}>`
          + `<img class="icon-dark-theme" src="icons/light/${file}" alt=""${mirrorStyle}>`;
 }
@@ -1792,7 +1769,7 @@ function renderRoadbookList(kmFilter) {
     markers = {};
 
     if (roadbookManeuvers.length === 0) {
-        document.getElementById('stationsContainer').innerHTML = "<div style='padding:20px; text-align:center;'>Aucune instruction de guidage trouvée dans ce fichier.<br><small>(Fonctionnalité disponible avec les fichiers JSON Valhalla nativement fournis avec manœuvres)</small></div>";
+        document.getElementById('stationsContainer').innerHTML = "<div style='padding:20px; text-align:center;'>Aucune instruction de guidage trouvée dans ce fichier.<br><small>(Fonctionnalité disponible avec les fichiers JSON exportés/envoyés depuis GeoRouter, avec manœuvres incluses)</small></div>";
         return;
     }
 
@@ -1819,7 +1796,7 @@ function renderRoadbookList(kmFilter) {
         <div class='station-card ${cardClass}' onclick="if(${m.lat}){ map.setView([${m.lat}, ${m.lon}], 16); }">
           <div class='station-main'>
             <div class='nav-block nav-block-maneuver'>
-              <div class='maneuver-icon'>${maneuverIconImg(m.type)}</div>
+              <div class='maneuver-icon'>${maneuverIconImg(m)}</div>
               <div class='pk-val-wrap'><span class='pk-val'>${d.val}</span><span class='pk-unit'>${d.unit}</span></div>
             </div>
             <div class='info-block'>
