@@ -639,9 +639,22 @@
     }
 
     /* --- TARIFS PAR ROUTE (synthese_par_route.csv) ---
-       Chargé une fois au démarrage : numero_route -> cout_km. Les entrées
-       composées (ex "A40/A42", des bretelles à coût quasi nul) sont
-       écartées à la lecture, pour rester simple. */
+       Chargé une fois au démarrage : numero_route -> { coutKm, coutTotal,
+       forfait, ouvrage }. Les entrées composées (ex "A40/A42", des
+       bretelles à coût quasi nul) sont écartées à la lecture, pour rester
+       simple.
+       type_tarif distingue deux logiques de calcul :
+       - "lineaire" (routes normales) : coût = km parcourus × cout_km.
+       - "forfait" (ponts/tunnels à péage forfaitaire type Millau, Mont
+         Blanc, Tancarville...) : le tarif réel ne dépend pas de la
+         distance mais du simple franchissement de l'ouvrage. cout_km a
+         été calculé en divisant un total sur une longueur de référence
+         qui n'a aucune raison de coïncider avec la longueur mesurée sur
+         le tracé GraphHopper (souvent très courte, donc très sensible à
+         la moindre différence de digitalisation) - d'où des écarts
+         parfois importants si on applique bêtement km_graphhopper ×
+         cout_km. Pour ces routes, on applique directement cout_total,
+         une seule fois par franchissement, indépendamment du km mesuré. */
     // Normalisation commune pour comparer un numéro de route quelle que soit
     // sa source (CSV sans espace "A13" vs GraphHopper avec espace "A 13").
     function normaliserNumeroRoute(s) {
@@ -658,14 +671,30 @@
         const entetes = lignes[0].split(';').map(h => h.trim());
         const idxNumero = entetes.indexOf('numero_route');
         const idxCoutKm = entetes.indexOf('cout_km');
+        const idxCoutTotal = entetes.indexOf('cout_total');
+        const idxTypeTarif = entetes.indexOf('type_tarif');
+        const idxOuvrage = entetes.indexOf('ouvrage_identifie');
+        let nbForfait = 0;
         for (let i = 1; i < lignes.length; i++) {
           const cols = lignes[i].split(';');
           const numero = (cols[idxNumero] || '').trim();
           if (!numero || numero.includes('/')) continue; // bretelles composées écartées
           const coutKm = parseFloat(cols[idxCoutKm]);
-          if (numero && !isNaN(coutKm)) tarifsRoutes.set(normaliserNumeroRoute(numero), coutKm);
+          const coutTotal = idxCoutTotal >= 0 ? parseFloat(cols[idxCoutTotal]) : NaN;
+          const typeTarif = idxTypeTarif >= 0 ? (cols[idxTypeTarif] || '').trim().toLowerCase() : 'lineaire';
+          const ouvrage = idxOuvrage >= 0 ? (cols[idxOuvrage] || '').trim() : '';
+          if (numero && !isNaN(coutKm)) {
+            const estForfait = typeTarif === 'forfait' && !isNaN(coutTotal);
+            if (estForfait) nbForfait++;
+            tarifsRoutes.set(normaliserNumeroRoute(numero), {
+              coutKm,
+              coutTotal: isNaN(coutTotal) ? 0 : coutTotal,
+              forfait: estForfait,
+              ouvrage
+            });
+          }
         }
-        log('PEAGE', `Tarifs chargés : ${tarifsRoutes.size} routes.`);
+        log('PEAGE', `Tarifs chargés : ${tarifsRoutes.size} routes (dont ${nbForfait} au forfait).`);
       } catch (err) {
         log('PEAGE', `Échec du chargement des tarifs : ${err.message}`, true);
       }
@@ -758,14 +787,28 @@
           let km = 0;
           for (let i = start; i < end; i++) km += haversineKm(coords[i][0], coords[i][1], coords[i + 1][0], coords[i + 1][1]);
           const cleTarif = normaliserNumeroRoute(numero);
-          const tarifTrouve = tarifs.has(cleTarif);
-          const tarif = tarifTrouve ? tarifs.get(cleTarif) : 0;
+          const infosTarif = tarifs.get(cleTarif);
+          const tarifTrouve = !!infosTarif;
           if (numero !== '?' && !tarifTrouve) {
             log('PEAGE', `Tarif introuvable pour "${numero}" (clé normalisée "${cleTarif}") - 0€ appliqué par défaut.`, true);
           }
-          const cout = km * tarif;
 
-          if (!parRoute[numero]) parRoute[numero] = { cout: 0, km: 0 };
+          if (!parRoute[numero]) parRoute[numero] = { cout: 0, km: 0, forfait: false, ouvrage: '' };
+
+          let cout;
+          if (tarifTrouve && infosTarif.forfait) {
+            // Péage forfaitaire (pont/tunnel) : le tarif ne dépend pas de
+            // la distance mesurée par GraphHopper. On applique le montant
+            // une seule fois par franchissement, pas à chaque intervalle
+            // atomique qui compose ce même franchissement.
+            cout = parRoute[numero].forfait ? 0 : infosTarif.coutTotal;
+            parRoute[numero].forfait = true;
+            parRoute[numero].ouvrage = infosTarif.ouvrage || '';
+          } else {
+            const tarif = tarifTrouve ? infosTarif.coutKm : 0;
+            cout = km * tarif;
+          }
+
           parRoute[numero].cout += cout;
           parRoute[numero].km += km;
 
@@ -789,7 +832,7 @@
       Object.values(parRoute).forEach(v => total += v.cout);
 
       const detail = Object.entries(parRoute)
-        .map(([numero, v]) => ({ numero, cout: v.cout, km: v.km }))
+        .map(([numero, v]) => ({ numero, cout: v.cout, km: v.km, forfait: v.forfait, ouvrage: v.ouvrage }))
         .sort((a, b) => b.cout - a.cout);
 
       log('PEAGE', `Résultat : total=${total.toFixed(2)}€, ${detail.length} route(s), ${segments.length} segment(s) à colorier.`);
@@ -1715,6 +1758,10 @@
           : '';
         const detailStr = peage.detail
           .map(d => {
+            if (d.forfait) {
+              const nomOuvrage = d.ouvrage ? ` (${d.ouvrage})` : '';
+              return `${d.numero === '?' ? 'segment non identifié' : d.numero}${nomOuvrage} : forfait : ${formatSig2(d.cout)}€`;
+            }
             const coutParKm = d.km > 0 ? d.cout / d.km : 0;
             return `${d.numero === '?' ? 'segment non identifié' : d.numero} : ${d.km.toFixed(1)} km à ${coutParKm.toFixed(2)}€/km : ${formatSig2(d.cout)}€`;
           })
