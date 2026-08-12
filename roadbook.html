@@ -1374,6 +1374,7 @@ async function fetchAndFilterStations() {
                         coordonneesXY: row.coordonneesXY || row.xy_coords || row.coordonnees,
                         nom_amenageur: row.nom_amenageur,
                         nom_station: row.nom_station,
+                        adresse_station: row.adresse_station || row.adresse || "",
                         code_insee_commune: row.code_insee_commune || row.code_insee || "",
                         id_station_itinerance: row.id_station_itinerance,
                         id_pdc_itinerance: row.id_pdc_itinerance
@@ -1410,6 +1411,7 @@ async function processStaticData(rawData) {
         let opName = row.nom_amenageur || "IRVE";
         let stId = row.id_station_itinerance || row.nom_station;
         let codeInsee = row.code_insee_commune || "";
+        let adresse = (row.adresse_station || "").trim();
         
         if (codeInsee) codesInseeSet.add(codeInsee);
 
@@ -1417,6 +1419,7 @@ async function processStaticData(rawData) {
             stationsMap.set(stId, {
                 id: stId, 
                 nom: row.nom_station, 
+                adresse: adresse,
                 code_insee: codeInsee,
                 commune: codeInsee ? `INSEE: ${codeInsee}` : "Commune inconnue",
                 op: opName,
@@ -1809,6 +1812,33 @@ function renderRoadbookList(kmFilter) {
     document.getElementById('stationsContainer').innerHTML = html;
 }
 
+/**
+ * Construit l'URL Google Maps pour une station de recharge, façon ChargeMap :
+ * recherche texte (nom + opérateur + commune) plutôt que simples coordonnées.
+ * Gratuit, sans clé API, sans appel réseau : Google fait lui-même le matching
+ * vers la bonne fiche POI côté client si le texte est assez précis.
+ * Fallback naturel : si aucun POI ne matche, Google affiche un pin sur la
+ * position correspondant le mieux à la recherche (jamais d'échec sec).
+ */
+function buildStationMapsUrl(nom, op, adresse, commune, lat, lng) {
+    // Priorité à "opérateur + adresse" (base Qualicharge/IRVE) : c'est ce qui
+    // matche le mieux une fiche POI réelle sur Google Maps, bien plus fiable
+    // que le nom de station seul (souvent trop générique ou incohérent).
+    let texte;
+    if (adresse) {
+        texte = [op, adresse].filter(Boolean).map(p => p.trim()).filter(Boolean).join(' ');
+    } else {
+        // Repli si l'adresse est absente pour cette station dans la base.
+        texte = [nom, op, commune].filter(Boolean).map(p => p.trim()).filter(Boolean).join(' ');
+    }
+
+    if (!texte) {
+        return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    }
+
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(texte)}`;
+}
+
 function renderStationsList(kmFilter) {
     let selectedOps = new Set();
     document.querySelectorAll('#operatorChipsList .op-chip.active[data-op], #operatorChipsListSecondary .op-chip.active').forEach(chip => {
@@ -1830,7 +1860,7 @@ function renderStationsList(kmFilter) {
         let m = L.circleMarker([s.lat, s.lng], {radius:8, fillColor:color, color:'#fff', weight:1, fillOpacity:0.9}).addTo(map);
         
         const coordsStr = `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}`;
-        const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}`;
+        const gmapsUrl = buildStationMapsUrl(s.nom, s.op, s.adresse, s.commune, s.lat, s.lng);
 
         m.bindPopup(`
           <b>${s.op}</b><br>${s.nom}<br>
