@@ -2,7 +2,7 @@
 // - Met en cache l'app shell pour un fonctionnement hors-ligne
 // - Intercepte les partages Android (Web Share Target API) et les redirige vers Roadbook VE
 
-const CACHE_NAME = 'roadbook-hub-v9.2';
+const CACHE_NAME = 'roadbook-hub-v9.3';
 const APP_SHELL = [
   './',
   './index.html',
