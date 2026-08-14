@@ -622,10 +622,9 @@
     }
 
     /* --- CONFIGURATION GRAPHHOPPER ---
-       ⚠️ Renseigne ta propre clé API (régénère-la si tu as déjà utilisé
-       celle qui a circulé dans les tests précédents). */
-    const GRAPHHOPPER_API_KEY = "9371d24a-0380-4080-8432-97e93063ebb1";
-    const GRAPHHOPPER_BASE_URL = "https://graphhopper.com/api/1";
+       Serveur auto-hébergé : pas de clé API, mode flexible (custom_model)
+       disponible nativement -> pas besoin de repli "compte gratuit". */
+    const GRAPHHOPPER_BASE_URL = "https://api.lawatture.fr";
 
     let currentGeocoder = 'photon';
     let ignoreNextMapClick = false;
@@ -1647,28 +1646,13 @@
 
       try {
         const t0 = performance.now();
-        let response = await fetch(`${GRAPHHOPPER_BASE_URL}/route?key=${GRAPHHOPPER_API_KEY}`, {
+        const response = await fetch(`${GRAPHHOPPER_BASE_URL}/route`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
 
-        let data = await response.json();
-
-        // Repli : compte gratuit -> mode flexible (nécessaire à custom_model)
-        // indisponible. On recalcule sans le réglage plutôt que d'échouer.
-        if (!response.ok && customModel && /flexible mode/i.test(data.message || '')) {
-          log('ROUTE', `custom_model refusé (${data.message}) - recalcul sans réglage personnalisé.`, true);
-          alert("Ton compte GraphHopper ne permet pas \"Éviter les péages\"/\"Éviter les grands axes\"/vitesse max (fonctionnalité réservée aux comptes payants). Calcul relancé sans ces réglages.");
-          delete payload.custom_model;
-          delete payload['ch.disable'];
-          response = await fetch(`${GRAPHHOPPER_BASE_URL}/route?key=${GRAPHHOPPER_API_KEY}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-          data = await response.json();
-        }
+        const data = await response.json();
 
         if (!response.ok || !data.paths || data.paths.length === 0) {
           throw new Error(data.message || "Impossible de calculer l'itinéraire.");
