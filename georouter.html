@@ -99,7 +99,7 @@
       display: flex; align-items: center; gap: 10px; padding: 0 16px 12px; flex-shrink: 0; cursor: pointer;
     }
     .summary-text {
-      flex: 1; font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 0.98rem;
+      flex: 1; min-width: 0; font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 0.98rem;
       color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .summary-text .muted { color: var(--muted); font-weight: 500; }
@@ -110,6 +110,39 @@
     .sheet-body {
       flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
       overscroll-behavior: contain; padding: 0 16px 20px; display: flex; flex-direction: column; gap: 8px;
+    }
+
+    /* --- MODE PAYSAGE : carte + panneau côte à côte, largeur fixe responsive.
+       Déclenchement 100% automatique (rotation téléphone OU fenêtre PC large),
+       pas de drag : largeur calculée une fois pour toutes via clamp(). --- */
+    @media (orientation: landscape) and (min-width: 560px) {
+      body { flex-direction: row; }
+      #map {
+        flex: 1 1 auto;
+        width: auto;
+        height: 100% !important;
+        min-height: 0;
+      }
+      .sheet-drag-buffer, .sheet-handle-zone { display: none; }
+      .sheet {
+        /* Plancher 340px : sous ce seuil, titre + icônes réglages/accueil
+           deviennent trop serrés. + réserve à droite pour la barre de
+           navigation système, qui en paysage se retrouve sur ce bord-là sur
+           téléphone (inchangé sur PC, où l'inset vaut 0). */
+        width: calc(clamp(340px, 34vw, 420px) + env(safe-area-inset-right));
+        height: 100% !important;
+        flex: 0 0 auto;
+        box-sizing: border-box;
+        box-shadow: -4px 0 16px rgba(0,0,0,0.10);
+        padding-right: env(safe-area-inset-right);
+        padding-bottom: 0;
+      }
+      .sheet-summary {
+        /* Marge pour la barre de statut / l'encoche : le sheet occupe toute
+           la hauteur en paysage, sa première ligne visible touche donc le
+           haut de l'écran (pas de carte au-dessus comme en portrait). */
+        padding-top: max(12px, env(safe-area-inset-top));
+      }
     }
 
     .settings-panel { padding: 2px 0 4px; }
@@ -899,6 +932,11 @@
     let sheetState = 'mid';
     let mapReady = false; // la carte Leaflet n'existe pas encore à ce stade du script
 
+    // Détection auto du mode paysage (rotation téléphone OU fenêtre PC large) :
+    // s'appuie sur le même media query que le CSS, aucune action utilisateur requise.
+    const landscapeMQ = window.matchMedia('(orientation: landscape) and (min-width: 560px)');
+    function isLandscape() { return landscapeMQ.matches; }
+
     // "basse" = exactement la hauteur du contenu épinglé (poignée + résumé +
     // bouton Calculer), calculée dynamiquement pour ne jamais rien couper.
     function pinnedContentHeight() {
@@ -927,8 +965,20 @@
 
     function setSheetState(state) {
       sheetState = state;
-      applySheetHeight(sheetHeightsPx()[state]);
       sheet.dataset.state = state;
+
+      if (isLandscape()) {
+        // En paysage, la largeur du panneau est fixée en CSS (clamp()) : on ne
+        // touche pas à sheet.style.height, on efface juste les valeurs inline
+        // laissées par le mode portrait pour laisser la main au CSS.
+        sheet.style.height = '';
+        mapEl.style.height = '';
+        sheetDragBuffer.style.bottom = '';
+        if (mapReady) requestAnimationFrame(() => map.invalidateSize({ pan: false }));
+        return;
+      }
+
+      applySheetHeight(sheetHeightsPx()[state]);
     }
 
     let sheetDrag = null;
@@ -975,6 +1025,9 @@
     });
 
     window.addEventListener('resize', () => setSheetState(sheetState));
+    // Filet de sécurité : certains navigateurs ne redéclenchent pas 'resize' de
+    // façon fiable sur une rotation d'écran ; matchMedia, lui, est garanti.
+    landscapeMQ.addEventListener('change', () => setSheetState(sheetState));
 
     // Réglages avancés (moteur de recherche) repliés par défaut
     document.getElementById('settingsBtn').addEventListener('click', () => {
