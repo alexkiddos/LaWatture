@@ -104,6 +104,65 @@
       .sheet-pinned { flex-shrink: 0; padding: 0 12px; }
       .sheet-body { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 0 12px 16px; }
 
+      /* --- MODE PAYSAGE : carte + panneau côte à côte, largeur fixe responsive.
+         Déclenchement 100% automatique (rotation téléphone OU fenêtre PC large),
+         pas de drag : largeur calculée une fois pour toutes via clamp(). --- */
+      @media (orientation: landscape) and (min-width: 560px) {
+        body { flex-direction: row; }
+        #map {
+          flex: 1 1 auto;
+          width: auto;
+          height: 100% !important;
+          min-height: 0;
+        }
+        .sheet-drag-buffer, .sheet-handle-zone { display: none; }
+        .sheet {
+          /* Plancher relevé à 340px (contre 300px avant) : à 300px, l'entête
+             (input km + bouton mode + 3 icônes) était trop juste et forçait
+             un défilement horizontal gênant. + réserve à droite pour la barre
+             de navigation système, qui en paysage se retrouve sur ce bord-là
+             sur téléphone (inchangé sur PC, où l'inset vaut 0). */
+          width: calc(clamp(340px, 34vw, 420px) + env(safe-area-inset-right));
+          height: 100% !important;
+          flex: 0 0 auto;
+          box-sizing: border-box;
+          box-shadow: -4px 0 16px rgba(0,0,0,0.10);
+          padding-right: env(safe-area-inset-right);
+          padding-bottom: 0;
+        }
+        .sheet-pinned {
+          /* Marge pour la barre de statut / l'encoche, qui déborde ici sur le
+             haut du panneau (le sheet occupe toute la hauteur en paysage). */
+          padding-top: max(12px, env(safe-area-inset-top));
+        }
+
+        /* Entête compacté : l'input km et les icônes rondes prennent moins de
+           place pour laisser le maximum de largeur au bouton stations/instructions. */
+        .header-controls { gap: 5px; }
+        .input-field { width: 54px; padding: 5px 2px; font-size: 12px; }
+        .refresh-btn, .header-trailing-group .refresh-btn { width: 30px; height: 30px; }
+        .refresh-btn svg { width: 14px; height: 14px; }
+        .mode-switch-btn { font-size: 12px; gap: 4px; padding: 0 4px; }
+        .mode-switch-btn svg { width: 14px; height: 14px; }
+
+        /* Cartes station / instruction : resserrées pour que le bloc info
+           (opérateur, nom, commune) garde assez de place pour ne pas tronquer
+           dans une colonne de ~340-420px au lieu de la pleine largeur portrait. */
+        .station-card { padding: 9px 10px; }
+        .nav-block { width: 58px; min-width: 58px; margin-right: 8px; }
+        .pk-val { font-size: 14px; }
+        .op-title { font-size: 13px; }
+        .st-name { font-size: 12px; }
+        .st-commune { font-size: 10px; }
+        .tech-block { min-width: 44px; padding-left: 6px; }
+        .roadbook-next { padding: 12px 10px; }
+        .roadbook-next .maneuver-icon { width: 34px; height: 34px; }
+        .roadbook-next .pk-val { font-size: 20px; }
+        .roadbook-next .op-title { font-size: 15px; }
+        .sheet-body { padding: 0 12px 12px; }
+      }
+
+
       .header-controls { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 10px; font-size: 13px; scrollbar-width: none; -ms-overflow-style: none; }
       .header-controls::-webkit-scrollbar { display: none; }
       .header-trailing-group { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
@@ -118,7 +177,9 @@
         flex: 1; height: 34px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
         background: var(--panel-2); color: var(--btn-text); border: 1px solid var(--line-strong); border-radius: 10px;
         font-family: 'Inter', sans-serif; font-weight: 600; font-size: 13px; cursor: pointer;
+        min-width: 0; white-space: nowrap; overflow: hidden;
       }
+      .mode-switch-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
       .mode-switch-btn:hover, .mode-switch-btn:active { filter: brightness(0.96); }
       .mode-switch-btn svg { flex-shrink: 0; }
 
@@ -180,6 +241,11 @@
       .detour-line { display: flex; align-items: center; justify-content: center; gap: 3px; font-size: 12px; font-weight: 600; opacity: 0.75; margin-top: 3px; white-space: nowrap; }
       .info-block { flex: 1; min-width: 0; }
       .op-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 15px; word-break: break-word; color: var(--op-color); }
+      /* Nom d'opérateur (carte station) : jamais de retour à la ligne, coupé
+         proprement avec "..." si trop long (contrairement à .op-title seul,
+         réutilisé aussi pour le texte des instructions de conduite, qui lui
+         doit continuer à s'enrouler normalement). */
+      .op-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .st-name { font-size: 13px; opacity: 0.9; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .st-commune { font-size: 11px; opacity: 0.75; font-weight: 600; margin-top: 1px; word-break: break-word; }
       
@@ -360,6 +426,11 @@ const sheetPinned = document.getElementById('sheetPinned');
 let sheetState = 'mid';
 let mapReady = false; // la carte Leaflet n'existe pas encore à ce stade du script
 
+// Détection auto du mode paysage (rotation téléphone OU fenêtre PC large) :
+// s'appuie sur le même media query que le CSS, aucune action utilisateur requise.
+const landscapeMQ = window.matchMedia('(orientation: landscape) and (min-width: 560px)');
+function isLandscape() { return landscapeMQ.matches; }
+
 // "basse" = exactement la hauteur du contenu épinglé (poignée + entêtes de contrôle).
 function pinnedContentHeight() {
   const firstCard = document.querySelector('#stationsContainer > *:first-child');
@@ -389,8 +460,20 @@ function applySheetHeight(px) {
 
 function setSheetState(state) {
   sheetState = state;
-  applySheetHeight(sheetHeightsPx()[state]);
   sheet.dataset.state = state;
+
+  if (isLandscape()) {
+    // En paysage, la largeur du panneau est fixée en CSS (clamp()) : on ne
+    // touche pas à sheet.style.height, on efface juste les valeurs inline
+    // laissées par le mode portrait pour laisser la main au CSS.
+    sheet.style.height = '';
+    mapEl.style.height = '';
+    sheetDragBuffer.style.bottom = '';
+    if (mapReady) requestAnimationFrame(() => map.invalidateSize({ pan: false }));
+    return;
+  }
+
+  applySheetHeight(sheetHeightsPx()[state]);
 }
 
 let sheetDrag = null;
@@ -440,6 +523,9 @@ document.addEventListener('pointerup', () => {
 });
 
 window.addEventListener('resize', () => setSheetState(sheetState));
+// Filet de sécurité : certains navigateurs ne redéclenchent pas 'resize' de
+// façon fiable sur une rotation d'écran ; matchMedia, lui, est garanti.
+landscapeMQ.addEventListener('change', () => setSheetState(sheetState));
 
 let map, gpxLineFuture, gpxLinePast, userMarker, watchId = null, isAutoTrack = false, isSimulating = false, simInterval = null;
 let currentArrowRotation = 0; // cumulatif (peut dépasser 0-360) pour que la transition CSS tourne toujours du bon côté
@@ -1561,12 +1647,22 @@ function buildOperatorChips(activeOperatorsSet) {
     operatorsMoreExpanded = false;
     secondaryContainer.hidden = true;
 
+    // Tronque un nom d'opérateur trop long (ex: "SM DEPARTEMENTAL D'ENERGIES DU
+    // CALVADOS DIT SDEC ENERGIE") pour que la chip garde une largeur raisonnable.
+    // Le nom complet reste consultable via l'attribut title (survol / appui long),
+    // et le filtrage (dataset.op) continue de se faire sur le nom intégral.
+    const CHIP_LABEL_MAX_LEN = 22;
+    const truncateChipLabel = (op) => (op.length > CHIP_LABEL_MAX_LEN)
+        ? op.slice(0, CHIP_LABEL_MAX_LEN - 1).trimEnd() + '…'
+        : op;
+
     const makeChip = (op) => {
         const chip = document.createElement('button');
         chip.type = 'button';
         chip.className = 'op-chip active';
         chip.dataset.op = op;
-        chip.textContent = op;
+        chip.textContent = truncateChipLabel(op);
+        chip.title = op;
         chip.onclick = () => toggleOperatorChip(op);
         return chip;
     };
@@ -1919,7 +2015,7 @@ function renderStationsList(kmFilter) {
               </div>
             </div>
             <div class='info-block'>
-              <div class='op-title'>${s.op}</div>
+              <div class='op-title op-name' title="${s.op}">${s.op}</div>
               <div class='st-name' title="${s.nom}">${s.nom}</div>
               <div class='st-commune'>${s.commune}</div>
             </div>
