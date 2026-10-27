@@ -12,6 +12,7 @@
   <!-- Leaflet CSS & JS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 
 
   <!-- Polices de l'interface (zone basse uniquement — la carte garde ses styles Leaflet natifs) -->
@@ -507,6 +508,29 @@
     }
     .btn-fit-bounds:hover { background-color: #f4f4f4; }
     .btn-fit-bounds:hover svg { color: #000; }
+
+    /* --- Légende de la surcouche bornes IRVE --- */
+    .irve-legend {
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 8px 10px; font: 500 11px/1.5 Inter, -apple-system, sans-serif;
+      box-shadow: 0 1px 6px rgba(0,0,0,.18);
+    }
+    .irve-legend .irve-row { display: flex; align-items: center; gap: 6px; }
+    .irve-legend .irve-dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0,0,0,.35); flex: none; }
+    .irve-legend .irve-status { margin-top: 4px; color: var(--muted); font-size: 10.5px; }
+    .irve-popup b { font-weight: 600; }
+    .irve-popup .irve-sub { color: #6B6B72; }
+    .irve-popup .irve-breakdown { margin: 6px 0 2px; }
+    .irve-popup .irve-row { display: flex; align-items: center; gap: 6px; line-height: 1.6; }
+    .irve-popup .irve-dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0,0,0,.35); flex: none; }
+    .irve-add-btn {
+      display: block; width: 100%; margin-top: 8px; padding: 8px 10px;
+      border: 0; border-radius: 8px; cursor: pointer;
+      background: var(--accent); color: var(--on-accent);
+      font: 600 12.5px Inter, -apple-system, sans-serif;
+    }
+    .irve-add-btn:active { opacity: .85; }
   </style>
 </head>
 <body>
@@ -1193,10 +1217,276 @@
       }
     });
 
+    /* --- SURCOUCHE BORNES DE RECHARGE (IRVE) ---
+       Même base de données que Roadbook VE : IndexedDB "IRVEDatabase",
+       store "stations", clé "cached_raw_data" (lignes IRVE brutes nettoyées).
+       GeoRouter et Roadbook étant servis depuis la même origine, le cache est
+       partagé : si Roadbook l'a déjà téléchargé, aucun téléchargement ici.
+       Sinon (ou si > 7 jours), GeoRouter télécharge le fichier statique
+       data.gouv.fr et l'enregistre au MÊME format, pour que Roadbook en profite.
+       Chargée À LA DEMANDE (à l'activation du calque), rendu Canvas, et
+       limitée à la zone visible pour rester fluide avec ~100 000 points de charge. */
+    const IRVE_DB_NAME = 'IRVEDatabase';
+    const IRVE_DB_VERSION = 2;
+    const IRVE_STORE = 'stations';
+    const IRVE_COMMUNES_STORE = 'communes';
+    const IRVE_MAX_AGE_DAYS = 7;
+    const IRVE_DATASET_URL = 'https://www.data.gouv.fr/api/1/datasets/infrastructures-de-recharge-pour-vehicules-electriques-donnees-ouvertes/';
+    const IRVE_MAX_MARKERS = 4000;      // plafond de marqueurs affichés simultanément
+    const IRVE_FAST_ONLY_ZOOM = 8;      // en dessous : seulement les bornes >= 150 kW
+    const IRVE_FAST_KW = 150;
+
+    map.createPane('irvePane');
+    map.getPane('irvePane').style.zIndex = 450;
+
+    const irveRenderer = L.canvas({ pane: 'irvePane', tolerance: 6 });
+    const irveLayer = L.layerGroup();
+    let irveStations = null;            // tableau compact, trié par puissance décroissante
+    let irveLoadingPromise = null;
+    let irveStatusText = '';
+
+    function irveOpenDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(IRVE_DB_NAME, IRVE_DB_VERSION);
+        req.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(IRVE_STORE)) db.createObjectStore(IRVE_STORE);
+          if (!db.objectStoreNames.contains(IRVE_COMMUNES_STORE)) db.createObjectStore(IRVE_COMMUNES_STORE);
+        };
+        req.onsuccess = (e) => resolve(e.target.result);
+        req.onerror = (e) => reject(e.target.error);
+      });
+    }
+
+    async function irveReadCache() {
+      try {
+        const db = await irveOpenDB();
+        const store = db.transaction(IRVE_STORE, 'readonly').objectStore(IRVE_STORE);
+        const get = (k) => new Promise(r => { const q = store.get(k); q.onsuccess = () => r(q.result); q.onerror = () => r(null); });
+        const data = await get('cached_raw_data');
+        const ts = await get('last_update_timestamp');
+        if (!data || !ts) return null;
+        return { data, isOutdated: (Date.now() - ts) / 86400000 > IRVE_MAX_AGE_DAYS };
+      } catch (err) {
+        log('IRVE', 'Erreur de lecture du cache : ' + err.message, true);
+        return null;
+      }
+    }
+
+    async function irveWriteCache(rows) {
+      try {
+        const db = await irveOpenDB();
+        const store = db.transaction(IRVE_STORE, 'readwrite').objectStore(IRVE_STORE);
+        store.put(rows, 'cached_raw_data');
+        store.put(Date.now(), 'last_update_timestamp');
+        log('IRVE', 'Base IRVE enregistrée localement (partagée avec Roadbook VE).');
+      } catch (err) {
+        log('IRVE', 'Erreur de sauvegarde du cache : ' + err.message, true);
+      }
+    }
+
+    // Télécharge le CSV statique et le réduit au même format que Roadbook VE
+    function irveDownloadRows() {
+      return fetch(IRVE_DATASET_URL)
+        .then(res => res.json())
+        .then(meta => {
+          const url = meta.resources.find(r => r.title.toLowerCase().includes('statique')).latest;
+          log('IRVE', 'Téléchargement du fichier statique IRVE...');
+          return new Promise((resolve, reject) => {
+            Papa.parse(url, {
+              download: true, header: true, skipEmptyLines: true,
+              complete: (results) => {
+                log('IRVE', results.data.length + ' points de charge téléchargés.');
+                resolve(results.data.map(row => ({
+                  puissance_nominale: row.puissance_nominale || row.puissance_max_kw,
+                  coordonneesXY: row.coordonneesXY || row.xy_coords || row.coordonnees,
+                  nom_amenageur: row.nom_amenageur,
+                  nom_station: row.nom_station,
+                  adresse_station: row.adresse_station || row.adresse || '',
+                  code_insee_commune: row.code_insee_commune || row.code_insee || '',
+                  id_station_itinerance: row.id_station_itinerance,
+                  id_pdc_itinerance: row.id_pdc_itinerance
+                })));
+              },
+              error: (err) => reject(err)
+            });
+          });
+        });
+    }
+
+    // Regroupe les points de charge par station (même logique que Roadbook VE)
+    function irveBuildStations(rows) {
+      const map_ = new Map();
+      for (const row of rows) {
+        const coords = row.coordonneesXY;
+        if (!coords) continue;
+        const c = String(coords).replace('[', '').replace(']', '').split(',');
+        const lon = parseFloat(c[0]), lat = parseFloat(c[1]);
+        if (isNaN(lat) || isNaN(lon)) continue;
+        const pwr = parseFloat(row.puissance_nominale || 0) || 0;
+        const id = row.id_station_itinerance || row.nom_station || (lat + ',' + lon);
+        let st = map_.get(id);
+        if (!st) {
+          st = { nom: row.nom_station || '', op: row.nom_amenageur || 'IRVE',
+                 adresse: (row.adresse_station || '').trim(), lat, lon, pwr: 0, pdcs: new Map() };
+          map_.set(id, st);
+        }
+        if (pwr > st.pwr) st.pwr = pwr;
+        st.pdcs.set(row.id_pdc_itinerance || (id + '#' + st.pdcs.size), pwr);
+      }
+      const list = [];
+      map_.forEach(st => {
+        // répartition des points de charge par puissance : [[kW, nombre], ...] décroissant
+        const byPwr = new Map();
+        st.pdcs.forEach(kw => { const k = Math.round(kw * 10) / 10; byPwr.set(k, (byPwr.get(k) || 0) + 1); });
+        const bk = Array.from(byPwr.entries()).sort((a, b) => b[0] - a[0]);
+        list.push({ nom: st.nom, op: st.op, adresse: st.adresse,
+                    lat: st.lat, lon: st.lon, pwr: st.pwr, n: st.pdcs.size, bk });
+      });
+      list.sort((a, b) => b.pwr - a.pwr);
+      return list;
+    }
+
+    function ensureIrveLoaded() {
+      if (irveStations) return Promise.resolve();
+      if (irveLoadingPromise) return irveLoadingPromise;
+      irveStatusText = 'Chargement des bornes…';
+      irveUpdateLegend();
+      irveLoadingPromise = (async () => {
+        const t0 = performance.now();
+        let rows = null;
+        const cached = await irveReadCache();
+        if (cached) {
+          log('IRVE', 'Base locale trouvée (cache partagé avec Roadbook VE).');
+          rows = cached.data;
+          if (cached.isOutdated && navigator.onLine) {
+            log('IRVE', 'Base locale > 7 jours : mise à jour en arrière-plan...');
+            irveDownloadRows().then(async fresh => {
+              await irveWriteCache(fresh);
+              irveStations = irveBuildStations(fresh);
+              irveRefresh();
+            }).catch(e => log('IRVE', 'Mise à jour impossible : ' + e.message, true));
+          }
+        } else if (navigator.onLine) {
+          rows = await irveDownloadRows();
+          await irveWriteCache(rows);
+        } else {
+          throw new Error('hors-ligne et aucune base locale');
+        }
+        irveStations = irveBuildStations(rows);
+        log('IRVE', irveStations.length + ' stations prêtes en ' + Math.round(performance.now() - t0) + ' ms.');
+      })().catch(err => {
+        log('IRVE', 'Échec du chargement des bornes : ' + err.message, true);
+        irveStatusText = 'Chargement impossible';
+        irveLoadingPromise = null;
+        irveUpdateLegend();
+      });
+      return irveLoadingPromise;
+    }
+
+    function irveColor(kw) {
+      if (kw >= 150) return '#1fa855';   // ultra-rapide
+      if (kw >= 50)  return '#0B72E7';   // rapide
+      if (kw >= 22)  return '#f39c12';   // accéléré
+      return '#8a8a93';                  // normal
+    }
+    function irveEsc(t) {
+      return String(t == null ? '' : t).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    }
+    function irveRouteActionLabel() {
+      if (!routePoints.start) return 'Définir comme départ';
+      if (!routePoints.end) return 'Définir comme arrivée';
+      return 'Ajouter comme étape';
+    }
+    // Même logique que le clic sur la carte : départ, puis arrivée, puis étapes
+    function irveAddToRoute(st) {
+      const latlng = L.latLng(st.lat, st.lon);
+      const label = st.nom || st.op || (st.lat.toFixed(5) + ', ' + st.lon.toFixed(5));
+      if (!routePoints.start) setPoint('start', latlng, label);
+      else if (!routePoints.end) setPoint('end', latlng, label);
+      else addViaPoint(latlng);
+      log('IRVE', 'Station ajoutée à l\'itinéraire : ' + label);
+      map.closePopup();
+    }
+    function irvePopup(st) {
+      const el = document.createElement('div');
+      el.className = 'irve-popup';
+      const breakdown = st.bk.map(([kw, n]) =>
+        '<div class="irve-row"><span class="irve-dot" style="background:' + irveColor(kw) + '"></span>' +
+        '<b>' + n + ' ×</b> ' + kw + ' kW</div>').join('');
+      el.innerHTML =
+        '<b>' + irveEsc(st.nom || st.op) + '</b><br>' +
+        '<span class="irve-sub">' + irveEsc(st.op) + '</span><br>' +
+        (st.adresse ? irveEsc(st.adresse) + '<br>' : '') +
+        '<div class="irve-breakdown">' + breakdown + '</div>' +
+        '<div class="irve-sub">' + st.n + ' point' + (st.n > 1 ? 's' : '') + ' de charge</div>';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'irve-add-btn';
+      btn.textContent = '+ ' + irveRouteActionLabel();
+      btn.addEventListener('click', (e) => { e.stopPropagation(); irveAddToRoute(st); });
+      el.appendChild(btn);
+      return el;
+    }
+
+    function irveRefresh() {
+      irveLayer.clearLayers();
+      if (!map.hasLayer(irveLayer) || !irveStations) { irveUpdateLegend(); return; }
+      const zoom = map.getZoom();
+      const fastOnly = zoom < IRVE_FAST_ONLY_ZOOM;
+      const bounds = map.getBounds().pad(0.1);
+      const radius = zoom < 9 ? 4 : zoom < 12 ? 5 : 7;
+      let shown = 0, truncated = false;
+      for (const st of irveStations) {            // trié par puissance décroissante
+        if (fastOnly && st.pwr < IRVE_FAST_KW) break;
+        if (!bounds.contains([st.lat, st.lon])) continue;
+        if (shown >= IRVE_MAX_MARKERS) { truncated = true; break; }
+        L.circleMarker([st.lat, st.lon], {
+          renderer: irveRenderer, pane: 'irvePane',
+          radius, color: '#fff', weight: 1, fillColor: irveColor(st.pwr), fillOpacity: 0.95,
+          bubblingMouseEvents: false     // un clic sur une borne ne doit pas poser un point d'itinéraire
+        }).bindPopup(() => irvePopup(st)).addTo(irveLayer);
+        shown++;
+      }
+      irveStatusText = shown + ' station' + (shown > 1 ? 's' : '') + ' affichée' + (shown > 1 ? 's' : '') +
+        (fastOnly ? ' (≥ 150 kW, zoomez pour tout voir)' : truncated ? ' (zoomez pour affiner)' : '');
+      irveUpdateLegend();
+    }
+
+    const irveLegend = L.control({ position: 'bottomright' });
+    irveLegend.onAdd = function () {
+      const div = L.DomUtil.create('div', 'irve-legend');
+      L.DomEvent.disableClickPropagation(div);
+      div.innerHTML =
+        '<div class="irve-row"><span class="irve-dot" style="background:#1fa855"></span>≥ 150 kW</div>' +
+        '<div class="irve-row"><span class="irve-dot" style="background:#0B72E7"></span>50 – 149 kW</div>' +
+        '<div class="irve-row"><span class="irve-dot" style="background:#f39c12"></span>22 – 49 kW</div>' +
+        '<div class="irve-row"><span class="irve-dot" style="background:#8a8a93"></span>&lt; 22 kW</div>' +
+        '<div class="irve-status"></div>';
+      return div;
+    };
+    function irveUpdateLegend() {
+      const el = irveLegend.getContainer && irveLegend.getContainer();
+      if (el) el.querySelector('.irve-status').textContent = irveStatusText;
+    }
+
+    map.on('overlayadd', (e) => {
+      if (e.layer !== irveLayer) return;
+      irveLegend.addTo(map);
+      ensureIrveLoaded().then(irveRefresh);
+    });
+    map.on('overlayremove', (e) => {
+      if (e.layer !== irveLayer) return;
+      irveLayer.clearLayers();
+      map.removeControl(irveLegend);
+    });
+    map.on('moveend', () => { if (map.hasLayer(irveLayer)) irveRefresh(); });
+
     /* --- CONTRÔLE DES CALQUES & ÉCHELLE --- */
     const baseLayers = { "OpenStreetMap.de": osmDeLayer };
     const overlayLayers = {
-      "Routes payantes (Péages)": tollLayer
+      "Routes payantes (Péages)": tollLayer,
+      "Bornes de recharge (IRVE)": irveLayer
     };
 
     const layerControl = L.control.layers(baseLayers, overlayLayers, { 
