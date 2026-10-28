@@ -230,6 +230,10 @@
       display: flex; align-items: center; justify-content: center;
       font-size: 0.62rem; font-weight: 700; font-family: 'Space Grotesk', sans-serif;
     }
+    .route-dot-pass {
+      width: 10px; height: 10px; margin: 13px 4px 0; font-size: 0;
+      background: var(--card-bg); border: 2px solid var(--muted); color: transparent;
+    }
     .route-row > .input-group { flex: 1; min-width: 0; }
     
     .input-group { position: relative; display: flex; flex-direction: column; gap: 4px; }
@@ -397,6 +401,13 @@
       padding: 9px 10px; cursor: pointer; width: 100%;
     }
     .pt-popup-del:active { background: #fecaca; }
+    .pt-popup-btn {
+      border: none; border-radius: 8px; background: #eef2f7; color: #334155;
+      font-family: 'Inter', sans-serif; font-weight: 600; font-size: 0.8rem;
+      padding: 9px 10px; cursor: pointer; width: 100%;
+    }
+    .pt-popup-btn:active { background: #dde5ee; }
+    .pass-marker { width: 16px; height: 16px; box-sizing: border-box; border-radius: 50%; background: #fff; border: 3px solid #e67e22; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
 
     .log-panel {
       display: none;
@@ -436,17 +447,15 @@
     .stat-block .stat-value { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1.05rem; color: var(--text); margin-top: 1px; }
     .stat-block.stat-toll .stat-value { color: var(--accent); }
 
-    .instructions {
-      margin-top: 10px;
-      padding-top: 4px;
-    }
+    .route-legs { margin-top: 10px; padding-top: 4px; }
+    .route-legs .legs-title { font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
     .step-item {
       display: flex; align-items: baseline; gap: 8px;
       font-size: 0.8rem; padding: 7px 0; border-bottom: 1px solid var(--border); color: var(--text);
     }
     .step-item .step-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); flex-shrink: 0; margin-top: 5px; }
-    .step-item .step-text { flex: 1; line-height: 1.4; }
-    .step-item .step-dist { font-family: 'Space Grotesk', sans-serif; font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+    .step-item .step-text { flex: 1; line-height: 1.4; min-width: 0; overflow-wrap: anywhere; }
+    .step-item .step-dist, .step-item .step-time { font-family: 'Space Grotesk', sans-serif; font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
     #loading { display: none; color: var(--accent); font-weight: bold; font-size: 0.85rem; text-align: center; }
 
     .pin-marker {
@@ -703,7 +712,7 @@
 
       <div id="route-peage-detail"></div>
 
-      <div class="instructions" id="instructions-list"></div>
+      <div class="route-legs" id="route-legs" style="display:none;"></div>
     </div>
     </div>
   </div>
@@ -1627,13 +1636,25 @@
       if (peageHighlightLayer) peageHighlightLayer.setStyle({ opacity: routeOpacity });
     });
 
-    let routePoints = { start: null, end: null, vias: [] };
+    let routePoints = { start: null, end: null, vias: [], viaKinds: [] };   // viaKinds[i] : 'stop' (étape) ou 'pass' (point de passage)
+    let lastRouteViaKinds = [];   // types des points intermédiaires effectivement envoyés au dernier calcul
+    const viaKind = (i) => routePoints.viaKinds[i] === 'pass' ? 'pass' : 'stop';
+    // Numéro d'étape de l'entrée i : seuls les arrêts sont comptés, pas les points de passage
+    function stopNumberOf(i) {
+      let n = 0;
+      for (let k = 0; k <= i; k++) if (viaKind(k) === 'stop') n++;
+      return n;
+    }
     let markers = [];
     let routeLayer = null;
-    let peageHighlightLayer = L.polyline([], { color: '#ff1493', weight: 7, opacity: routeOpacity }); // portions payantes réellement empruntées, en surbrillance sur le tracé (même principe que gpxLinePast dans Roadbook VE)
+    let peageHighlightLayer = L.polyline([], { color: '#ff1493', weight: 7, opacity: routeOpacity, interactive: false }); // portions payantes réellement empruntées, en surbrillance sur le tracé (même principe que gpxLinePast dans Roadbook VE)
     let decodedRouteCoords = [];
     let routeSummary = null;
     let currentPath = null;        // path GraphHopper courant (instructions, details, points)
+    let routeHitLayer = null;      // polyline invisible plus large : zone de clic confortable sur le tracé
+    let routePolyCum = [];         // distance cumulée (m) le long du tracé pour chaque point de decodedRouteCoords
+    let lastRouteWaypoints = null; // points du dernier calcul : [{ kind:'start'|'stop'|'pass'|'end', viaIndex, ref }]
+    let routeWpCum = null;         // distance cumulée (m) de chaque point de lastRouteWaypoints
     let rawRouteResponse = null;   // réponse brute complète (export JSON / envoi Roadbook)
 
     function closeAllSuggestions() {
@@ -1770,8 +1791,9 @@
       });
     }
 
-    function addViaPoint(latlng = null) {
+    function addViaPoint(latlng = null, kind = 'stop') {
       routePoints.vias.push(latlng);
+      routePoints.viaKinds.push(kind === 'pass' ? 'pass' : 'stop');
       renderViaInputs();
       updateMarkers();
     }
@@ -1811,9 +1833,10 @@
       dragState.rowEl.classList.remove('dragging');
 
       const container = document.getElementById('via-points');
-      const newOrder = Array.from(container.querySelectorAll('.route-row'))
-        .map(r => routePoints.vias[parseInt(r.dataset.viaIndex, 10)]);
-      routePoints.vias = newOrder;
+      const order = Array.from(container.querySelectorAll('.route-row'))
+        .map(r => parseInt(r.dataset.viaIndex, 10));
+      routePoints.viaKinds = order.map(i => viaKind(i));   // le type suit le point
+      routePoints.vias = order.map(i => routePoints.vias[i]);
       dragState = null;
       renderViaInputs();
       updateMarkers();
@@ -1833,13 +1856,16 @@
           <span class="drag-handle" title="Glisser pour réordonner">
             <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
           </span>
-          <span class="route-dot route-dot-via" aria-hidden="true">${index + 1}</span>
+          <span class="route-dot route-dot-via" id="via-dot-${index}" aria-hidden="true"></span>
           <div class="input-group">
             <div class="input-row">
               <div class="input-with-clear">
-                <input type="text" id="via-input-${index}" placeholder="Étape N°${index + 1}" value="${coordsStr}" oninput="toggleClearBtn('via-input-${index}', 'via-clear-${index}')">
+                <input type="text" id="via-input-${index}" placeholder="Étape" value="${coordsStr}" oninput="toggleClearBtn('via-input-${index}', 'via-clear-${index}')">
                 <button type="button" class="btn-clear-text" id="via-clear-${index}" onmousedown="handleClearClick(event, ${index}, 'via-input-${index}', 'via-clear-${index}')">✕</button>
               </div>
+              <button class="icon-btn icon-btn-ghost icon-btn-sm" id="via-kind-${index}" onclick="toggleViaKind(${index})" aria-pressed="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12h6M16 12h6"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
               <button class="icon-btn icon-btn-ghost icon-btn-sm" onclick="removeVia(${index})" title="Supprimer l'étape" aria-label="Supprimer l'étape">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M9 7V4h6v3M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/></svg>
               </button>
@@ -1861,10 +1887,41 @@
           if (sheetState === 'high') setSheetState('mid');
         });
       });
+      refreshViaRowKinds();
+    }
+
+    // Met à jour pastille, placeholder et bouton de chaque ligne selon le type (sans reconstruire les champs)
+    function refreshViaRowKinds() {
+      routePoints.vias.forEach((_, i) => {
+        const pass = viaKind(i) === 'pass';
+        const dot = document.getElementById(`via-dot-${i}`);
+        const input = document.getElementById(`via-input-${i}`);
+        const btn = document.getElementById(`via-kind-${i}`);
+        if (dot) { dot.textContent = pass ? '' : stopNumberOf(i); dot.classList.toggle('route-dot-pass', pass); }
+        if (input) input.placeholder = pass ? 'Point de passage' : `Étape N°${stopNumberOf(i)}`;
+        if (btn) {
+          btn.classList.toggle('active', pass);
+          btn.setAttribute('aria-pressed', pass ? 'true' : 'false');
+          btn.title = btn.ariaLabel = pass ? 'Point de passage : convertir en étape' : 'Étape : convertir en point de passage';
+        }
+      });
+    }
+
+    function toggleViaKind(index) {
+      routePoints.viaKinds[index] = viaKind(index) === 'pass' ? 'stop' : 'pass';
+      refreshViaRowKinds();
+      updateMarkers();
+      log('ROUTE', `Point intermédiaire ${index + 1} : ${viaKind(index) === 'pass' ? 'point de passage' : 'étape'}.`);
+    }
+
+    function basculerTypeDepuisCarte(index) {
+      map.closePopup();
+      toggleViaKind(index);
     }
 
     function removeVia(index) {
       routePoints.vias.splice(index, 1);
+      routePoints.viaKinds.splice(index, 1);
       renderViaInputs();
       updateMarkers();
     }
@@ -1880,6 +1937,7 @@
       document.getElementById('end-input').value = startVal;
 
       routePoints.vias.reverse();
+      routePoints.viaKinds = routePoints.vias.map((_, i) => viaKind(i)).reverse();
 
       toggleClearBtn('start-input', 'start-clear');
       toggleClearBtn('end-input', 'end-clear');
@@ -1923,9 +1981,15 @@
 
       routePoints.vias.forEach((v, i) => {
         if (v) {
-          const m = L.marker(v, { icon: createPinIcon(i + 1, '#e67e22'), draggable: true })
+          const pass = viaKind(i) === 'pass';
+          const icon = pass
+            ? L.divIcon({ className: 'pass-marker-icon', html: '<div class="pass-marker"></div>', iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -10] })
+            : createPinIcon(stopNumberOf(i), '#e67e22');
+          const m = L.marker(v, { icon, draggable: true })
             .addTo(map)
-            .bindPopup(`<div class="pt-popup"><b>Étape N°${i + 1}</b><button class="pt-popup-del" onclick="supprimerEtapeDepuisCarte(${i})">🗑️ Supprimer ce point</button></div>`);
+            .bindPopup(`<div class="pt-popup"><b>${pass ? 'Point de passage' : `Étape N°${stopNumberOf(i)}`}</b>
+              <button class="pt-popup-btn" onclick="basculerTypeDepuisCarte(${i})">${pass ? '📍 Convertir en étape' : '〰️ Convertir en point de passage'}</button>
+              <button class="pt-popup-del" onclick="supprimerEtapeDepuisCarte(${i})">🗑️ Supprimer ce point</button></div>`);
           m.on('dragend', function(e) {
             const latlng = e.target.getLatLng();
             routePoints.vias[i] = latlng;
@@ -2069,7 +2133,7 @@
       return hours > 0 ? `${hours} h ${minutes > 0 ? minutes + ' min' : ''}`.trim() : `${minutes} min`;
     }
 
-    async function calculateRoute() {
+    async function calculateRoute(opts = {}) {
       if (!routePoints.end) {
         alert("Veuillez sélectionner au moins une arrivée.");
         return;
@@ -2099,6 +2163,14 @@
         [routePoints.start.lng, routePoints.start.lat],
         ...routePoints.vias.filter(v => v !== null).map(v => [v.lng, v.lat]),
         [routePoints.end.lng, routePoints.end.lat]
+      ];
+      // Types des points intermédiaires réellement envoyés (les champs vides sont ignorés)
+      lastRouteViaKinds = routePoints.vias.map((v, i) => v ? viaKind(i) : null).filter(k => k !== null);
+      // Instantané des points envoyés : sert à situer un clic sur le tracé entre deux étapes
+      const waypointsSnapshot = [
+        { kind: 'start', ref: routePoints.start },
+        ...routePoints.vias.map((v, i) => v ? { kind: viaKind(i), viaIndex: i, ref: v } : null).filter(Boolean),
+        { kind: 'end', ref: routePoints.end }
       ];
 
       // Réglages -> custom_model GraphHopper
@@ -2130,6 +2202,13 @@
         payload['ch.disable'] = true; // custom_model incompatible avec le speed mode (Contraction Hierarchies)
       }
 
+      // pass_through : GraphHopper l'applique à TOUS les points intermédiaires (pas point par point).
+      // On ne l'active donc que si aucun n'est une étape, pour ne pas imposer de non-demi-tour aux arrêts.
+      if (lastRouteViaKinds.length > 0 && lastRouteViaKinds.every(k => k === 'pass')) {
+        payload.pass_through = true;
+        payload['ch.disable'] = true;   // pass_through exige le mode flexible (hors Contraction Hierarchies)
+      }
+
       log('ROUTE', `Calcul demandé : ${points.length} points, custom_model=${JSON.stringify(customModel)}${customModel ? ' (ch.disable=true)' : ''}`);
 
       try {
@@ -2149,7 +2228,8 @@
         log('ROUTE', `Réponse GraphHopper reçue en ${Math.round(performance.now() - t0)} ms (${(data.paths[0].distance / 1000).toFixed(1)} km).`);
 
         rawRouteResponse = data;
-        await processRouteResponse(data.paths[0]);
+        lastRouteWaypoints = waypointsSnapshot;
+        await processRouteResponse(data.paths[0], { keepView: opts.keepView === true });
       } catch (error) {
         log('ROUTE', `Erreur de calcul : ${error.message}`, true);
         alert(`Erreur : ${error.message}`);
@@ -2158,15 +2238,24 @@
       }
     }
 
-    async function processRouteResponse(path) {
+    async function processRouteResponse(path, opts = {}) {
       currentPath = path;
       routeSummary = { length: path.distance / 1000, time: path.time / 1000 };
       decodedRouteCoords = (path.points.coordinates || []).map(([lon, lat]) => [lat, lon]); // -> [lat,lng]
 
       if (routeLayer) map.removeLayer(routeLayer);
-      routeLayer = L.polyline(decodedRouteCoords, { color: '#2980b9', weight: 6, opacity: routeOpacity }).addTo(map);
+      routeLayer = L.polyline(decodedRouteCoords, { color: '#2980b9', weight: 6, opacity: routeOpacity, interactive: false }).addTo(map);
 
-      map.fitBounds(routeLayer.getBounds(), { padding: [40, 40] });
+      // Zone de clic invisible, plus large que le trait : confortable au doigt
+      if (routeHitLayer) map.removeLayer(routeHitLayer);
+      routeHitLayer = L.polyline(decodedRouteCoords, { color: '#000', weight: 24, opacity: 0, bubblingMouseEvents: false })
+        .addTo(map)
+        .on('click', onRouteClick);
+      if (peageHighlightLayer && map.hasLayer(peageHighlightLayer)) peageHighlightLayer.bringToFront();
+
+      prepareRouteClickData(path);
+
+      if (!opts.keepView) map.fitBounds(routeLayer.getBounds(), { padding: [40, 40] });
 
       // Le péage ne dépend plus d'aucune donnée externe (tout vient de la
       // réponse GraphHopper déjà en main) - la surcouche visuelle continue
@@ -2174,10 +2263,161 @@
       displayInstructions();
     }
 
+    /* --- CLIC SUR LE TRACÉ : distance depuis l'étape précédente + ajout comme étape --- */
+    function fmtDistKm(m) {
+      return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`;
+    }
+
+    // Distances cumulées le long du tracé, et position (en m) de chaque point du dernier calcul
+    function prepareRouteClickData(path) {
+      routePolyCum = [0];
+      for (let i = 1; i < decodedRouteCoords.length; i++) {
+        const a = decodedRouteCoords[i - 1], b = decodedRouteCoords[i];
+        routePolyCum.push(routePolyCum[i - 1] + haversineKm(a[0], a[1], b[0], b[1]) * 1000);
+      }
+      // La longueur géométrique diffère légèrement de la distance GraphHopper : on recale
+      const polyTotal = routePolyCum[routePolyCum.length - 1];
+      if (polyTotal > 0 && path.distance > 0) {
+        const k = path.distance / polyTotal;
+        routePolyCum = routePolyCum.map(d => d * k);
+      }
+
+      routeWpCum = null;
+      if (!lastRouteWaypoints) return;
+      // Même principe que le "Détail du trajet" : signe 5 = étape atteinte, signe 4 = arrivée
+      const cum = [0];
+      let acc = 0;
+      (path.instructions || []).forEach(step => {
+        acc += step.distance || 0;
+        if (step.sign === 5 || step.sign === 4) cum.push(acc);
+      });
+      if (cum.length === lastRouteWaypoints.length) routeWpCum = cum;
+    }
+
+    // Projette un point sur le tracé affiché, en ne cherchant qu'à partir de minDist (ordre du trajet respecté)
+    function projectAlongRoute(latlng, minDist) {
+      const pts = decodedRouteCoords;
+      const p = map.latLngToLayerPoint(latlng);
+      let best = { d: Infinity, seg: -1, pt: null };
+      let prev = map.latLngToLayerPoint(pts[0]);
+      for (let i = 1; i < pts.length; i++) {
+        const cur = map.latLngToLayerPoint(pts[i]);
+        if (routePolyCum[i] >= minDist) {
+          const d = L.LineUtil.pointToSegmentDistance(p, prev, cur);
+          if (d < best.d) best = { d, seg: i - 1, pt: L.LineUtil.closestPointOnSegment(p, prev, cur) };
+        }
+        prev = cur;
+      }
+      if (best.seg < 0) return minDist;
+      const sn = map.layerPointToLatLng(best.pt);
+      const a = pts[best.seg];
+      return Math.max(minDist, routePolyCum[best.seg] + haversineKm(a[0], a[1], sn.lat, sn.lng) * 1000);
+    }
+
+    // Points actuellement saisis (départ, étapes, arrivée) avec leur position le long du tracé affiché.
+    // Les points inchangés depuis le dernier calcul gardent leur position exacte (instructions GraphHopper) ;
+    // ceux ajoutés ou déplacés depuis (ex : étape posée hors tracé) sont projetés sur le tracé : position approchée.
+    function currentWaypointsAlongRoute() {
+      const known = new Map();
+      if (lastRouteWaypoints && routeWpCum) {
+        lastRouteWaypoints.forEach((w, i) => known.set(w.ref, { kind: w.kind, cum: routeWpCum[i] }));
+      }
+      const total = routePolyCum[routePolyCum.length - 1] || 0;
+      const list = [];
+      if (routePoints.start) list.push({ kind: 'start', ref: routePoints.start });
+      routePoints.vias.forEach((v, i) => { if (v) list.push({ kind: viaKind(i), viaIndex: i, ref: v }); });
+      if (routePoints.end) list.push({ kind: 'end', ref: routePoints.end });
+
+      let last = 0, approx = false;
+      list.forEach(w => {
+        const kn = known.get(w.ref);
+        if (kn && kn.kind === w.kind) {
+          w.pos = kn.cum;
+        } else if (w.kind === 'start') {
+          w.pos = 0; approx = true;
+        } else if (w.kind === 'end') {
+          w.pos = total; approx = true;
+        } else {
+          w.pos = projectAlongRoute(w.ref, last); approx = true;
+        }
+        w.pos = Math.max(w.pos, last);
+        last = w.pos;
+      });
+      return { list, approx };
+    }
+
+    // Point du tracé le plus proche du clic (projeté sur le segment) + distance cumulée à cet endroit
+    function snapToRoute(latlng) {
+      const pts = decodedRouteCoords;
+      if (pts.length < 2) return null;
+      const p = map.latLngToLayerPoint(latlng);
+      let best = { d: Infinity, seg: 0, pt: null };
+      let prev = map.latLngToLayerPoint(pts[0]);
+      for (let i = 1; i < pts.length; i++) {
+        const cur = map.latLngToLayerPoint(pts[i]);
+        const d = L.LineUtil.pointToSegmentDistance(p, prev, cur);
+        if (d < best.d) best = { d, seg: i - 1, pt: L.LineUtil.closestPointOnSegment(p, prev, cur) };
+        prev = cur;
+      }
+      const snapped = map.layerPointToLatLng(best.pt);
+      const a = pts[best.seg];
+      const along = routePolyCum[best.seg] + haversineKm(a[0], a[1], snapped.lat, snapped.lng) * 1000;
+      return { latlng: snapped, dist: along };
+    }
+
+    function onRouteClick(e) {
+      L.DomEvent.stopPropagation(e);
+      closeAllSuggestions();
+      const snap = snapToRoute(e.latlng);
+      if (!snap) return;
+
+      const el = document.createElement('div');
+      el.className = 'pt-popup';
+
+      const { list, approx } = currentWaypointsAlongRoute();
+      // Tronçon contenant le clic : dernier départ/étape/point de passage situé avant lui
+      let k = -1;
+      list.forEach((w, i) => { if (w.kind !== 'end' && w.pos <= snap.dist) k = i; });
+      // Étape précédente = départ ou étape (les points de passage sont ignorés)
+      let prevIdx = k;
+      while (prevIdx >= 0 && list[prevIdx].kind === 'pass') prevIdx--;
+      const prevWp = prevIdx >= 0 ? list[prevIdx] : null;
+      const prevName = (!prevWp || prevWp.kind === 'start') ? 'le départ' : `l'étape ${stopNumberOf(prevWp.viaIndex)}`;
+      const distFromPrev = Math.max(0, snap.dist - (prevWp ? prevWp.pos : 0));
+
+      el.innerHTML = `<b>${approx ? '≈ ' : ''}${fmtDistKm(distFromPrev)}</b><span style="font-size:.78rem;color:var(--muted)">depuis ${prevName}${approx ? ' · approximatif, recalculez pour une valeur exacte' : ''}</span>`;
+
+      if (routePoints.start && routePoints.end) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'pt-popup-btn';
+        btn.textContent = '📍 Ajouter comme étape';
+        btn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          const w = k >= 0 ? list[k] : null;
+          const insertAt = (!w || w.kind === 'start') ? 0 : w.viaIndex + 1;
+          map.closePopup();
+          insertViaAt(insertAt, snap.latlng);
+          log('CARTE', `Étape ajoutée depuis le tracé (${fmtDistKm(distFromPrev)} après ${prevName}).`);
+          calculateRoute({ keepView: true });
+        });
+        el.appendChild(btn);
+      }
+
+      L.popup({ closeButton: true }).setLatLng(snap.latlng).setContent(el).openOn(map);
+    }
+
+    function insertViaAt(index, latlng) {
+      routePoints.vias.splice(index, 0, latlng);
+      routePoints.viaKinds.splice(index, 0, 'stop');
+      renderViaInputs();
+      updateMarkers();
+    }
+
     function displayInstructions() {
       const summaryDiv = document.getElementById('route-summary');
       const statsDiv = document.getElementById('route-stats');
-      const listDiv = document.getElementById('instructions-list');
+      const legsDiv = document.getElementById('route-legs');
       const detailEl = document.getElementById('route-peage-detail');
 
       const evitementActif = document.getElementById('avoid-tolls-check').checked;
@@ -2245,19 +2485,51 @@
         detailEl.style.display = 'none';
       }
 
-      listDiv.innerHTML = '';
-      (currentPath.instructions || []).forEach((step) => {
-        const item = document.createElement('div');
-        item.className = 'step-item';
-        const distMeters = Math.round(step.distance);
-        const distStr = distMeters >= 1000 ? `${(distMeters / 1000).toFixed(1)} km` : `${distMeters} m`;
-        item.innerHTML = `
-          <span class="step-dot"></span>
-          <span class="step-text">${step.text}</span>
-          <span class="step-dist">${distStr}</span>
-        `;
-        listDiv.appendChild(item);
-      });
+      // Détail du trajet par tronçon, uniquement s'il y a des arrêts intermédiaires.
+      // GraphHopper marque chaque étape atteinte par une instruction de signe 5 (VIA)
+      // et l'arrivée par le signe 4 : on cumule distance et durée entre ces repères.
+      legsDiv.innerHTML = '';
+      legsDiv.style.display = 'none';
+      const kinds = lastRouteViaKinds;
+      if (kinds.length > 0) {
+        const raw = [];
+        let dist = 0, time = 0;
+        (currentPath.instructions || []).forEach((step) => {
+          dist += step.distance || 0;
+          time += step.time || 0;
+          if (step.sign === 5 || step.sign === 4) {
+            raw.push({ dist, time });
+            dist = 0; time = 0;
+          }
+        });
+        if (raw.length === kinds.length + 1) {
+          // Un tronçon qui se termine sur un point de passage est fusionné avec le suivant :
+          // seuls Départ, étapes et Arrivée délimitent le détail.
+          const legs = [];
+          let acc = { dist: 0, time: 0 };
+          raw.forEach((leg, i) => {
+            acc.dist += leg.dist; acc.time += leg.time;
+            if (!(i < kinds.length && kinds[i] === 'pass')) { legs.push(acc); acc = { dist: 0, time: 0 }; }
+          });
+          if (legs.length > 1) {
+            const nodes = ['Départ', ...legs.slice(0, -1).map((_, i) => `Étape ${i + 1}`), 'Arrivée'];
+            const fmtDist = (m) => m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`;
+            legsDiv.innerHTML = '<div class="legs-title">Détail du trajet</div>';
+            legs.forEach((leg, i) => {
+              const item = document.createElement('div');
+              item.className = 'step-item';
+              item.innerHTML = `
+                <span class="step-dot"></span>
+                <span class="step-text">${nodes[i]} → ${nodes[i + 1]}</span>
+                <span class="step-dist">${fmtDist(leg.dist)}</span>
+                <span class="step-time">${formatDuration(leg.time / 1000)}</span>
+              `;
+              legsDiv.appendChild(item);
+            });
+            legsDiv.style.display = 'block';
+          }
+        }
+      }
 
       summaryDiv.style.display = 'block';
       const summaryText = document.getElementById('summaryText');
@@ -2282,6 +2554,8 @@
           if (data.paths && data.paths.length > 0) {
             // Format GraphHopper natif (seul format supporté).
             rawRouteResponse = data;
+            lastRouteViaKinds = [];
+            lastRouteWaypoints = null;
             await processRouteResponse(data.paths[0]);
             log('IMPORT', `Import réussi (format GraphHopper) : ${data.paths[0].points.coordinates.length} points.`);
           } else {
