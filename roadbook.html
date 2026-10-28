@@ -281,6 +281,56 @@
       .pdc-table th:nth-child(4), .pdc-table td:nth-child(4) { width: 22%; }
       
       
+
+      /* --- Bandeau distance / temps (étape suivante + arrivée) --- */
+      .trip-banner { background: var(--pdc-bg); border: 1px solid var(--border); border-radius: 10px; padding: 4px 10px; margin-bottom: 10px; }
+      .trip-banner[hidden] { display: none; }
+      .trip-row { display: grid; grid-template-columns: 20px minmax(0,1fr) auto auto auto; align-items: baseline; column-gap: 8px; padding: 4px 0; font-size: 13px; }
+      .trip-row + .trip-row { border-top: 1px solid var(--border); }
+      .trip-row.trip-stage { cursor: pointer; }
+      .trip-ico { text-align: center; font-size: 13px; }
+      .trip-label { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+      .trip-stage .trip-label { color: var(--accent); }
+      .trip-detour { font-size: 11px; font-weight: 600; opacity: 0.7; white-space: nowrap; }
+      .trip-km { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; white-space: nowrap; text-align: right; }
+      .trip-time { font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 13px; color: var(--muted); white-space: nowrap; min-width: 52px; text-align: right; }
+
+      /* --- Étapes : carte surlignée, badge, bouton --- */
+      .station-card.is-stage { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--pdc-bg); }
+      @supports (background: color-mix(in srgb, red 10%, white)) {
+        .station-card.is-stage { background: color-mix(in srgb, var(--accent) 10%, var(--card-bg)); }
+      }
+      .stage-badge { font-size: 10.5px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 1px; }
+      .stage-btn { margin-top: 5px; padding: 3px 7px; font-family: inherit; font-size: 10.5px; font-weight: 700; line-height: 1.3; white-space: nowrap; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--panel-2); color: var(--text); cursor: pointer; }
+      .stage-btn.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+      .station-card.flash { animation: card-flash 1.6s ease-out 1; }
+      @keyframes card-flash {
+        0%, 45% { box-shadow: 0 0 0 4px var(--accent); }
+        100% { box-shadow: 0 0 0 0 transparent; }
+      }
+
+      /* --- Marqueurs de stations (divIcon) --- */
+      .st-icon { background: transparent !important; border: none !important; }
+      .st-dot { width: 18px; height: 18px; box-sizing: border-box; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.25); opacity: 0.95; }
+      .st-pin { width: 30px; height: 30px; box-sizing: border-box; border-radius: 50%; background: #0B72E7; border: 4px solid #16a34a; color: #fff; display: flex; align-items: center; justify-content: center; font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 13px; box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(0,0,0,0.45); }
+
+      /* --- Étiquette (popup) de station : fond Leaflet blanc, couleurs fixes --- */
+      .st-popup { font-family: 'Inter', sans-serif; color: #111114; min-width: 210px; }
+      .st-popup .pp-op { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+      .st-popup .pp-badge { background: #0B72E7; color: #fff; border-radius: 999px; padding: 1px 7px; font-size: 10.5px; font-weight: 700; white-space: nowrap; }
+      .st-popup .pp-name { font-size: 12px; opacity: 0.85; margin-top: 1px; }
+      .st-popup .pp-dist { display: flex; align-items: baseline; gap: 8px; margin-top: 7px; flex-wrap: wrap; }
+      .st-popup .pp-km { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 20px; }
+      .st-popup .pp-time { font-size: 13px; font-weight: 600; color: #6B6B72; }
+      .st-popup .pp-detour { font-size: 12px; font-weight: 600; color: #6B6B72; }
+      .st-popup .pp-passed { font-size: 13px; font-weight: 600; color: #6B6B72; }
+      .st-popup .pp-tech { font-size: 12px; font-weight: 600; margin-top: 4px; }
+      .st-popup .pp-links { font-size: 11px; margin-top: 4px; }
+      .st-popup .pp-links a { color: #0B72E7; font-weight: 700; text-decoration: underline; }
+      .st-popup .pp-actions { display: grid; grid-template-columns: auto 1fr; gap: 6px; margin-top: 9px; }
+      .st-popup .pp-btn { height: 36px; border-radius: 8px; border: 1px solid #C3C4CB; background: #EEF0F3; color: #111114; font-family: inherit; font-size: 12px; font-weight: 700; padding: 0 10px; cursor: pointer; white-space: nowrap; }
+      .st-popup .pp-btn-main { background: #0B72E7; border-color: #0B72E7; color: #fff; }
+
       .user-loc-icon { background: transparent !important; border: none !important; }
       .user-loc-arrow { width: 28px; height: 28px; transition: transform 0.3s ease-out; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.4)); }
     </style>
@@ -328,6 +378,7 @@
           </button>
         </div>
       </div>
+      <div id="tripBanner" class="trip-banner" hidden></div>
     </div>
 
     <div class="sheet-body" id="sheetBody">
@@ -361,6 +412,12 @@
           <button type="button" class="segmented-btn" data-radius="10" onclick="setRadius(10)">10 km</button>
         </div>
 
+        <div class="settings-section-label">Stations affichées</div>
+        <div class="segmented" id="stageOnlySegmented">
+          <button type="button" class="segmented-btn active" data-stageonly="0" onclick="setStageOnly(0)">Toutes</button>
+          <button type="button" class="segmented-btn" data-stageonly="1" onclick="setStageOnly(1)">Étapes seules</button>
+        </div>
+
         <div class="settings-advanced-toggle" id="advancedToggleRow" onclick="toggleAdvancedSettings()">
           <span>Avancé</span>
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg>
@@ -379,6 +436,14 @@
             <button type="button" class="segmented-btn" data-pdctotalmin="2" onclick="setPdcTotalMin(2)">2+</button>
             <button type="button" class="segmented-btn" data-pdctotalmin="3" onclick="setPdcTotalMin(3)">3+</button>
             <button type="button" class="segmented-btn" data-pdctotalmin="5" onclick="setPdcTotalMin(5)">5+</button>
+          </div>
+
+          <div class="settings-section-label">Vitesse moyenne (si la trace n'a pas de durée)</div>
+          <div class="segmented" id="avgSpeedSegmented">
+            <button type="button" class="segmented-btn" data-avgspeed="70" onclick="setAvgSpeed(70)">70</button>
+            <button type="button" class="segmented-btn active" data-avgspeed="90" onclick="setAvgSpeed(90)">90</button>
+            <button type="button" class="segmented-btn" data-avgspeed="110" onclick="setAvgSpeed(110)">110</button>
+            <button type="button" class="segmented-btn" data-avgspeed="130" onclick="setAvgSpeed(130)">130 km/h</button>
           </div>
         </div>
 
@@ -536,6 +601,17 @@ let wakeLock = null;
 let isInitialGPXLoad = false;
 let currentViewMode = 'STATIONS';
 
+/* --- Étapes (stations choisies comme étapes), bandeau distance/temps --- */
+const ETAPES_KEY = 'roadbook_etapes';
+let stageIds = new Set();      // ids stables (String) des stations choisies pour la trace courante
+let stageOrder = new Map();    // id -> numéro d'étape (1, 2, ...) dans l'ordre du trajet
+let currentTraceKey = '';
+let STAGE_ONLY = false;        // "Étapes seules"
+let AVG_SPEED_KMH = 90;        // utilisée seulement si la trace n'a pas de durée
+let traceHasTime = false;      // true si gpxPoints[i].t (ms depuis le départ) est renseigné
+let positionKm = 0;            // dernier km "précis" utilisé pour les rendus
+let stationIndex = new Map(), stationIndexSrc = null;
+
 /* --- Réglages bornes : réglables depuis le panneau ⚙️, persistés en UN SEUL objet
    localStorage (même mécanique que GeoRouter : sauvegarderReglages/restaurerReglages,
    appelées à chaque changement / une fois au démarrage). --- */
@@ -551,7 +627,9 @@ function sauvegarderReglages() {
         puissanceMin: PUISSANCE_MIN_KW,
         rayon: RAYON_RECHERCHE_KM,
         kmMinDepart: KM_MIN_DEPART,
-        pdcTotalMin: PDC_TOTAL_MIN
+        pdcTotalMin: PDC_TOTAL_MIN,
+        etapesSeules: STAGE_ONLY,
+        vitesseMoy: AVG_SPEED_KMH
     };
     try {
         localStorage.setItem(REGLAGES_KEY, JSON.stringify(reglages));
@@ -573,6 +651,8 @@ function restaurerReglages() {
     if (typeof reglages.rayon === 'number') setRadius(reglages.rayon);
     if (typeof reglages.kmMinDepart === 'number') setKmMinDepart(reglages.kmMinDepart);
     if (typeof reglages.pdcTotalMin === 'number') setPdcTotalMin(reglages.pdcTotalMin);
+    if (typeof reglages.vitesseMoy === 'number') setAvgSpeed(reglages.vitesseMoy);
+    if (typeof reglages.etapesSeules === 'boolean') setStageOnly(reglages.etapesSeules ? 1 : 0);
     log("RÉGLAGES", "Réglages restaurés depuis la dernière session.");
 }
 
@@ -675,6 +755,20 @@ function setPdcTotalMin(val) {
     updateSegmentedActive('pdcTotalMinSegmented', 'pdctotalmin', val);
     sauvegarderReglages();
     renderList(); // filtre appliqué directement sur les données déjà en mémoire
+}
+
+function setStageOnly(val) {
+    STAGE_ONLY = !!val;
+    updateSegmentedActive('stageOnlySegmented', 'stageonly', STAGE_ONLY ? 1 : 0);
+    sauvegarderReglages();
+    renderList();
+}
+
+function setAvgSpeed(val) {
+    AVG_SPEED_KMH = val;
+    updateSegmentedActive('avgSpeedSegmented', 'avgspeed', val);
+    sauvegarderReglages();
+    renderList();
 }
 
 function handleInlineImportClick() {
@@ -1227,7 +1321,7 @@ function updatePosition(lat, lng, heading, speedMps) {
 function onKmInputChange() {
     const kmVal = parseFloat(document.getElementById('kmInput').value) || 0;
     updateTraceDisplay(kmVal);
-    renderList();
+    renderList(kmVal);
 }
 
 function distanceHaversine(lat1, lon1, lat2, lon2) {
@@ -1256,6 +1350,8 @@ function handleTraceUpload(event) {
 function processTraceContent(content, filename) {
     gpxPoints = [];
     roadbookManeuvers = [];
+    traceHasTime = false;
+    globalData = []; // les stations de la trace précédente (km/étapes) ne doivent pas survivre
 
     if (filename.endsWith('.json') || filename.endsWith('.geojson') || content.trim().startsWith('{')) {
         parseJSONTrace(content);
@@ -1277,6 +1373,12 @@ function processTraceContent(content, filename) {
     // Une trace est chargée : Importer/Logs quittent l'état d'accueil et rejoignent
     // la section "Outils" du panneau réglages (usage occasionnel une fois le trajet en cours).
     document.getElementById('settingsToolsRow').hidden = false;
+
+    // Étapes mémorisées pour CETTE trace + bandeau distance/temps (arrivée dès maintenant)
+    currentTraceKey = computeTraceKey(filename);
+    loadStages();
+    syncStationMarkers([]);
+    updateTripBanner(parseFloat(document.getElementById('kmInput').value) || 0);
 
     if(gpxLineFuture) map.removeLayer(gpxLineFuture);
     if(gpxLinePast) map.removeLayer(gpxLinePast);
@@ -1369,19 +1471,54 @@ function parseGPXTrace(xmlString) {
     }
 }
 
+// Construit gpxPoints[i].t (ms depuis le départ) à partir des durées des instructions GraphHopper
+// (interpolées entre les points de chaque instruction), sinon de la durée totale du trajet répartie
+// au prorata des km. Sans aucune durée (GPX, GeoJSON) : traceHasTime reste false et on utilise
+// la vitesse moyenne réglable.
+function buildTraceTimes(segs, totalMs) {
+    traceHasTime = false;
+    const n = gpxPoints.length;
+    if (n < 2) return;
+    const last = n - 1;
+    const totalKm = gpxPoints[last].km;
+    if (segs.length && segs.some(sg => sg.ms > 0)) {
+        let t0 = 0;
+        segs.forEach(sg => {
+            const a = Math.min(Math.max(sg.a | 0, 0), last);
+            const b = Math.min(Math.max(sg.b | 0, a), last);
+            const kmA = gpxPoints[a].km, span = gpxPoints[b].km - kmA;
+            for (let p = a; p <= b; p++) {
+                gpxPoints[p].t = t0 + (span > 0 ? sg.ms * (gpxPoints[p].km - kmA) / span : 0);
+            }
+            t0 += sg.ms;
+        });
+        let prevT = 0;
+        gpxPoints.forEach(p => { if (typeof p.t !== 'number') p.t = prevT; else prevT = p.t; });
+        traceHasTime = gpxPoints[last].t > 0;
+    } else if (totalMs > 0 && totalKm > 0) {
+        gpxPoints.forEach(p => { p.t = totalMs * p.km / totalKm; });
+        traceHasTime = true;
+    }
+    if (traceHasTime) log("TEMPS", `Durée de la trace : ${formatDuration(gpxPoints[last].t)} (temps issu de l'itinéraire).`);
+    else log("TEMPS", `Pas de durée dans la trace : estimation à ${AVG_SPEED_KMH} km/h.`);
+}
+
 function parseJSONTrace(jsonString) {
     try {
         const data = JSON.parse(jsonString);
         let coords = [];
+        let timeSegs = [], totalTimeMs = 0;
 
         if (data.paths && data.paths.length > 0) {
             // --- Format GraphHopper (seul format JSON supporté) ---
             log("IMPORT", "Analyse au format GraphHopper...");
             const path = data.paths[0];
             coords = (path.points && path.points.coordinates || []).map(([lon, lat]) => [lat, lon]);
+            totalTimeMs = path.time || 0;
 
             (path.instructions || []).forEach((step, i) => {
                 const ptIndex = step.interval ? step.interval[0] : 0;
+                timeSegs.push({ a: ptIndex, b: step.interval ? step.interval[1] : ptIndex, ms: step.time || 0 });
                 roadbookManeuvers.push({
                     instruction: step.text || "Continuer",
                     street: "", // GraphHopper ne fournit pas de nom de rue distinct par instruction
@@ -1408,6 +1545,8 @@ function parseJSONTrace(jsonString) {
             gpxPoints.push({ lat, lon, km });
             prev = { lat, lon };
         });
+
+        buildTraceTimes(timeSegs, totalTimeMs);
 
         roadbookManeuvers.forEach(m => {
             if (m.shapeIndex < gpxPoints.length) {
@@ -1484,9 +1623,9 @@ async function processStaticData(rawData) {
     let stationsMap = new Map();
     let codesInseeSet = new Set();
 
-    rawData.forEach(row => {
+    const addRow = (row, ignorePower) => {
         let pwr = parseFloat(row.puissance_nominale || 0);
-        if (pwr < PUISSANCE_MIN_KW) return;
+        if (!ignorePower && pwr < PUISSANCE_MIN_KW) return;
         
         let coordsStr = row.coordonneesXY;
         if(!coordsStr) return;
@@ -1515,7 +1654,18 @@ async function processStaticData(rawData) {
         let st = stationsMap.get(stId);
         if(pwr > st.pwr) st.pwr = pwr;
         st.pdcs.push(row.id_pdc_itinerance);
-    });
+    };
+    rawData.forEach(row => addRow(row, false));
+
+    // Les étapes choisies ne disparaissent pas à cause du filtre de puissance :
+    // si une station-étape n'a retenu aucune ligne, on la reconstitue sans seuil.
+    const missingStages = new Set([...stageIds].filter(id => !stationsMap.has(id)));
+    if (missingStages.size) {
+        rawData.forEach(row => {
+            const id = String(row.id_station_itinerance || row.nom_station);
+            if (missingStages.has(id)) addRow(row, true);
+        });
+    }
 
     log("COMMUNES", `Résolution locale des noms de villes pour ${codesInseeSet.size} codes INSEE...`);
     const communesLookup = await getCommunesMap(codesInseeSet);
@@ -1539,7 +1689,7 @@ async function processStaticData(rawData) {
             if(d < minDist) { minDist = d; bestKm = pt.km; }
         }
         
-        if (minDist <= RAYON_RECHERCHE_KM && bestKm >= KM_MIN_DEPART) {
+        if ((minDist <= RAYON_RECHERCHE_KM && bestKm >= KM_MIN_DEPART) || stageIds.has(String(st.id))) {
             globalData.push({
                 ...st, km: bestKm, detour: minDist,
                 dispo: st.pdcs.length, total: st.pdcs.length, liveInfo: []
@@ -1841,13 +1991,23 @@ function maneuverIconImg(m) {
 }
 
 function renderList(kmOverride) {
-    const kmFilter = (typeof kmOverride === 'number' && !isNaN(kmOverride)) ? kmOverride : (parseFloat(document.getElementById('kmInput').value) || 0);
-    
+    let kmFilter;
+    if (typeof kmOverride === 'number' && !isNaN(kmOverride)) {
+        kmFilter = kmOverride;
+    } else {
+        // Le champ km est arrondi : si c'est la même valeur arrondie, on garde le km précis.
+        const v = parseFloat(document.getElementById('kmInput').value) || 0;
+        kmFilter = (Math.round(positionKm) === v) ? positionKm : v;
+    }
+    positionKm = kmFilter;
+
     if (currentViewMode === 'ROADBOOK') {
         renderRoadbookList(kmFilter);
     } else {
         renderStationsList(kmFilter);
     }
+
+    updateTripBanner(kmFilter);
 
     // La position basse dévoile la prochaine carte (station ou instruction) :
     // si son contenu vient de changer de hauteur, on réajuste tout de suite.
@@ -1863,9 +2023,10 @@ function formatManeuverDistance(km) {
 }
 
 function renderRoadbookList(kmFilter) {
-    // Mode "instructions de conduite" : les points des stations VE sont masqués de la carte
-    for(let k in markers) map.removeLayer(markers[k]);
-    markers = {};
+    // Mode "instructions de conduite" : les stations VE sont masquées de la carte,
+    // sauf les étapes choisies, qui restent visibles en permanence.
+    refreshStageOrder();
+    syncStationMarkers(stageStations());
 
     if (roadbookManeuvers.length === 0) {
         document.getElementById('stationsContainer').innerHTML = "<div style='padding:20px; text-align:center;'>Aucune instruction de guidage trouvée dans ce fichier.<br><small>(Fonctionnalité disponible avec les fichiers JSON exportés/envoyés depuis GeoRouter, avec manœuvres incluses)</small></div>";
@@ -1962,50 +2123,305 @@ function buildGpsNavUrl(lat, lng) {
     return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
 }
 
+/* ===================== ÉTAPES ===================== */
+
+function escapeHtml(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function computeTraceKey(filename) {
+    const n = gpxPoints.length;
+    const f = gpxPoints[0], l = gpxPoints[n - 1];
+    return [filename || '', n, l.km.toFixed(1), f.lat.toFixed(4), f.lon.toFixed(4)].join('|');
+}
+
+function loadStages() {
+    stageIds = new Set();
+    try {
+        const all = JSON.parse(localStorage.getItem(ETAPES_KEY) || '{}');
+        if (all && Array.isArray(all[currentTraceKey])) stageIds = new Set(all[currentTraceKey].map(String));
+    } catch (err) { /* stockage indisponible : on repart sans étapes */ }
+    if (stageIds.size) log("ÉTAPES", `${stageIds.size} étape(s) retrouvée(s) pour cette trace.`);
+}
+
+function saveStages() {
+    try {
+        const all = JSON.parse(localStorage.getItem(ETAPES_KEY) || '{}') || {};
+        delete all[currentTraceKey]; // ré-insertion en fin : les plus anciennes traces sont purgées en premier
+        if (stageIds.size) all[currentTraceKey] = [...stageIds];
+        const keys = Object.keys(all);
+        while (keys.length > 15) delete all[keys.shift()];
+        localStorage.setItem(ETAPES_KEY, JSON.stringify(all));
+    } catch (err) {
+        log("ÉTAPES", "Échec de sauvegarde des étapes : " + err.message, true);
+    }
+}
+
+// Liste des stations-étapes (globalData est déjà triée par km).
+function stageStations() { return globalData.filter(s => stageIds.has(String(s.id))); }
+
+function refreshStageOrder() {
+    stageOrder = new Map();
+    stageStations().forEach((s, i) => stageOrder.set(String(s.id), i + 1));
+}
+
+function getStation(sid) {
+    if (stationIndexSrc !== globalData) {
+        stationIndex = new Map(globalData.map(s => [String(s.id), s]));
+        stationIndexSrc = globalData;
+    }
+    return stationIndex.get(sid);
+}
+
+function toggleStage(sid) {
+    if (stageIds.has(sid)) stageIds.delete(sid); else stageIds.add(sid);
+    saveStages();
+    renderList();
+}
+function toggleStageEl(el) { toggleStage(el.dataset.sid); }
+
+/* ===================== DISTANCE / TEMPS ===================== */
+
+function formatDuration(ms) {
+    const min = Math.round(ms / 60000);
+    if (min < 1) return '< 1 min';
+    if (min < 60) return min + ' min';
+    return Math.floor(min / 60) + ' h ' + String(min % 60).padStart(2, '0');
+}
+
+function formatDistKm(km) {
+    const k = Math.max(0, km);
+    if (k < 1) return (Math.round(k * 1000 / 50) * 50) + ' m';
+    if (k < 100) return k.toFixed(1) + ' km';
+    return Math.round(k) + ' km';
+}
+
+// Temps (ms depuis le départ) au point km de la trace : temps réel de l'itinéraire si connu,
+// sinon distance / vitesse moyenne réglée.
+function timeAtKm(km) {
+    const n = gpxPoints.length;
+    if (!n) return 0;
+    if (!traceHasTime) return km / AVG_SPEED_KMH * 3600000;
+    if (km <= gpxPoints[0].km) return gpxPoints[0].t;
+    if (km >= gpxPoints[n - 1].km) return gpxPoints[n - 1].t;
+    let lo = 0, hi = n - 1;
+    while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (gpxPoints[mid].km <= km) lo = mid; else hi = mid;
+    }
+    const a = gpxPoints[lo], b = gpxPoints[hi], span = b.km - a.km;
+    return span > 0 ? a.t + (b.t - a.t) * (km - a.km) / span : a.t;
+}
+function travelMs(fromKm, toKm) { return Math.max(0, timeAtKm(toKm) - timeAtKm(fromKm)); }
+
+function updateTripBanner(km) {
+    const el = document.getElementById('tripBanner');
+    if (!el) return;
+    if (!gpxPoints.length) { el.hidden = true; el.innerHTML = ''; return; }
+
+    const totalKm = gpxPoints[gpxPoints.length - 1].km;
+    const k = Math.min(Math.max(km || 0, 0), totalKm);
+    let html = '';
+
+    const next = stageStations().find(s => s.km > k);
+    if (next) {
+        const sid = String(next.id);
+        const n = stageOrder.get(sid) || '';
+        html += `
+        <div class="trip-row trip-stage" data-sid="${escapeHtml(sid)}" onclick="focusStationOnMapEl(this)" title="Voir sur la carte">
+          <span class="trip-ico">⚡</span>
+          <span class="trip-label">Étape ${n} · ${escapeHtml(next.op)}</span>
+          <span class="trip-detour">↳ ${next.detour.toFixed(1)} km</span>
+          <span class="trip-km">${formatDistKm(next.km - k)}</span>
+          <span class="trip-time">${formatDuration(travelMs(k, next.km))}</span>
+        </div>`;
+    }
+    html += `
+        <div class="trip-row">
+          <span class="trip-ico">🏁</span>
+          <span class="trip-label">Arrivée</span>
+          <span class="trip-detour"></span>
+          <span class="trip-km">${formatDistKm(totalKm - k)}</span>
+          <span class="trip-time">${formatDuration(travelMs(k, totalKm))}</span>
+        </div>`;
+
+    el.innerHTML = html;
+    el.hidden = false;
+}
+
+/* ===================== MARQUEURS & ÉTIQUETTE ===================== */
+
+function stationColor(s) {
+    return s.dispo === 0 ? '#dc2626' : (s.dispo <= s.total / 3 ? '#d97706' : '#16a34a');
+}
+
+function makeStationIcon(color, n) {
+    if (n) {
+        return L.divIcon({
+            className: 'st-icon',
+            html: `<div class="st-pin" style="border-color:${color}">${n}</div>`,
+            iconSize: [30, 30], iconAnchor: [15, 15], popupAnchor: [0, -14]
+        });
+    }
+    return L.divIcon({
+        className: 'st-icon',
+        html: `<div class="st-dot" style="background:${color}"></div>`,
+        iconSize: [18, 18], iconAnchor: [9, 9], popupAnchor: [0, -8]
+    });
+}
+
+// Les marqueurs sont CONSERVÉS d'un rendu à l'autre (on ne met à jour que ce qui change) :
+// une étiquette ouverte ne se ferme plus à chaque mise à jour de position.
+function syncStationMarkers(list) {
+    if (!mapReady) return;
+    const keep = new Set();
+    list.forEach(s => {
+        const sid = String(s.id);
+        keep.add(sid);
+        const n = stageOrder.get(sid) || 0;
+        const color = stationColor(s);
+        const sig = color + '|' + n;
+        let m = markers[sid];
+        if (!m) {
+            m = L.marker([s.lat, s.lng], { icon: makeStationIcon(color, n), zIndexOffset: n ? 1000 : 0 });
+            m.bindPopup(() => buildStationPopup(sid), { minWidth: 220, maxWidth: 270 });
+            m._sig = sig;
+            m.addTo(map);
+            markers[sid] = m;
+        } else {
+            if (!map.hasLayer(m)) m.addTo(map);
+            if (m._sig !== sig) {
+                m.setIcon(makeStationIcon(color, n));
+                m.setZIndexOffset(n ? 1000 : 0);
+                m._sig = sig;
+            }
+        }
+        // Étiquette ouverte : on rafraîchit distance / temps / disponibilité en direct
+        if (m.isPopupOpen()) m.getPopup().setContent(buildStationPopup(sid));
+    });
+    for (const sid in markers) {
+        if (!keep.has(sid)) { map.removeLayer(markers[sid]); delete markers[sid]; }
+    }
+}
+
+function buildStationPopup(sid) {
+    const s = getStation(sid);
+    if (!s) return '';
+    const n = stageOrder.get(sid) || 0;
+    const sidAttr = escapeHtml(sid);
+    const dKm = s.km - positionKm;
+
+    const distHtml = dKm < 0
+        ? `<span class="pp-passed">Déjà passée</span>`
+        : `<span class="pp-km">${formatDistKm(dKm)}</span><span class="pp-time">${formatDuration(travelMs(positionKm, s.km))}</span>`;
+
+    const coordsStr = `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}`;
+    const gpsNavUrl = buildGpsNavUrl(s.lat, s.lng);
+    const searchMapsUrl = buildSearchMapsUrl(s.nom, s.op, s.adresse, s.commune, s.lat, s.lng);
+
+    return `
+      <div class="st-popup">
+        <div class="pp-op">${escapeHtml(s.op)}${n ? `<span class="pp-badge">Étape ${n}</span>` : ''}</div>
+        <div class="pp-name">${escapeHtml(s.nom)}</div>
+        <div class="pp-dist">${distHtml}<span class="pp-detour">↳ ${s.detour.toFixed(2)} km</span></div>
+        <div class="pp-tech">${s.pwr} kW · ${s.dispo}/${s.total} PDC</div>
+        <div class="pp-links">
+          📍 <a href="${gpsNavUrl}" target="_blank" rel="noopener noreferrer" title="${coordsStr}">GPS ↗</a>
+          &nbsp;·&nbsp; 🔍 <a href="${searchMapsUrl}" target="_blank" rel="noopener noreferrer">Google Maps ↗</a>
+        </div>
+        <div class="pp-actions">
+          <button type="button" class="pp-btn ${n ? '' : 'pp-btn-main'}" data-sid="${sidAttr}" onclick="toggleStageEl(this)">${n ? '✕ Retirer' : '⚡ Étape'}</button>
+          <button type="button" class="pp-btn" data-sid="${sidAttr}" onclick="showInListEl(this)">📋 Voir dans la liste</button>
+        </div>
+      </div>`;
+}
+
+/* ===================== NAVIGATION CARTE <-> LISTE ===================== */
+
+function focusStationOnMap(sid) {
+    const s = getStation(sid);
+    if (!s || !mapReady) return;
+    map.setView([s.lat, s.lng], 14);
+    if (markers[sid]) markers[sid].openPopup();
+}
+function focusStationOnMapEl(el) { focusStationOnMap(el.dataset.sid); }
+
+function findStationCard(sid) {
+    const cards = document.querySelectorAll('#stationsContainer .station-card');
+    for (const c of cards) if (c.dataset.sid === sid) return c;
+    return null;
+}
+
+function scrollToStationCard(sid) {
+    const card = findStationCard(sid);
+    if (!card) { log("LISTE", "Station introuvable dans la liste (filtres actifs ?).", true); return; }
+    const body = document.getElementById('sheetBody');
+    const cr = card.getBoundingClientRect(), br = body.getBoundingClientRect();
+    const target = body.scrollTop + (cr.top - br.top) - Math.max(0, (br.height - cr.height) / 2);
+    body.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+
+    card.classList.remove('flash');
+    void card.offsetWidth; // relance l'animation
+    card.classList.add('flash');
+    setTimeout(() => card.classList.remove('flash'), 1800);
+}
+
+function showInList(sid) {
+    if (mapReady) map.closePopup();
+    if (currentViewMode !== 'STATIONS') toggleViewMode();   // les cartes stations ne sont affichées qu'en mode Stations
+    if (sheetState === 'low') setSheetState('mid');          // le panneau doit être assez haut pour voir la liste
+    // On attend la fin de l'animation du panneau (0,28 s) avant de calculer le défilement
+    setTimeout(() => scrollToStationCard(sid), 330);
+}
+function showInListEl(el) { showInList(el.dataset.sid); }
+
+/* ===================== LISTE DES STATIONS ===================== */
+
 function renderStationsList(kmFilter) {
     let selectedOps = new Set();
     document.querySelectorAll('#operatorChipsList .op-chip.active[data-op], #operatorChipsListSecondary .op-chip.active').forEach(chip => {
         selectedOps.add(chip.dataset.op);
     });
 
-    for(let k in markers) map.removeLayer(markers[k]);
-    markers = {};
-    
-    let html = "";
-    globalData.forEach((s, i) => {
-        if (s.km < kmFilter) return;
-        if (selectedOps.size > 0 && !selectedOps.has(s.op)) return;
-        if (s.total < PDC_TOTAL_MIN) return;
-        
-        let status = s.dispo === 0 ? 'dispo-alert' : (s.dispo <= s.total/3 ? 'dispo-warn' : 'dispo-ok');
-        let color = s.dispo === 0 ? '#dc2626' : (s.dispo <= s.total/3 ? '#d97706' : '#16a34a');
-        
-        let m = L.circleMarker([s.lat, s.lng], {radius:8, fillColor:color, color:'#fff', weight:1, fillOpacity:0.9}).addTo(map);
-        
-        const coordsStr = `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}`;
-        const gpsNavUrl = buildGpsNavUrl(s.lat, s.lng);
-        const searchMapsUrl = buildSearchMapsUrl(s.nom, s.op, s.adresse, s.commune, s.lat, s.lng);
+    refreshStageOrder();
+    const stageList = stageStations();
 
-        m.bindPopup(`
-          <b>${s.op}</b><br>${s.nom}<br>
-          <div style="margin-top:6px; font-size:11px;">
-            📍 <a href="${gpsNavUrl}" target="_blank" rel="noopener noreferrer" style="color: #0B72E7; text-decoration: underline; font-weight: bold;">
-              ${coordsStr} ↗
-            </a>
-          </div>
-          <div style="margin-top:4px; font-size:11px;">
-            🔍 <a href="${searchMapsUrl}" target="_blank" rel="noopener noreferrer" style="color: #0B72E7; text-decoration: underline; font-weight: bold;">
-              lien gmaps ↗
-            </a>
-          </div>
-        `);
-        markers[i] = m;
-        
+    let html = "";
+    const markerStations = [];
+
+    globalData.forEach((s, i) => {
+        const sid = String(s.id);
+        const sidAttr = escapeHtml(sid);
+        const n = stageOrder.get(sid) || 0;
+        const isStage = n > 0;
+
+        // Une étape garde son marqueur même une fois dépassée
+        if (isStage) markerStations.push(s);
+
+        if (s.km < kmFilter) return;
+        if (STAGE_ONLY && !isStage) return;
+        // Les étapes ignorent les filtres opérateur et nombre de PDC
+        if (!isStage) {
+            if (selectedOps.size > 0 && !selectedOps.has(s.op)) return;
+            if (s.total < PDC_TOTAL_MIN) return;
+            markerStations.push(s);
+        }
+
+        let status = s.dispo === 0 ? 'dispo-alert' : (s.dispo <= s.total/3 ? 'dispo-warn' : 'dispo-ok');
+
+        let badgeHtml = '';
+        if (isStage) {
+            const prev = n > 1 ? stageList[n - 2] : null;
+            const since = prev ? ` · +${formatDistKm(s.km - prev.km)}` : '';
+            const title = prev ? `Étape ${n} : ${formatDistKm(s.km - prev.km)} après l'étape ${n - 1}` : `Étape ${n}`;
+            badgeHtml = `<div class="stage-badge" title="${escapeHtml(title)}">⚡ Étape ${n}${since}</div>`;
+        }
+
         let pdcsHtml = s.liveInfo.map(p => `<tr><td>${p.id}</td><td><b>${p.etat}</b></td><td>${p.occup}</td><td>${p.h}</td></tr>`).join('');
         if(!pdcsHtml) pdcsHtml = `<tr><td colspan="4">Aucun statut disponible</td></tr>`;
-        
+
         html += `
-        <div class='station-card' onclick="map.setView([${s.lat}, ${s.lng}], 14); markers[${i}].openPopup();">
+        <div class='station-card${isStage ? ' is-stage' : ''}' data-sid="${sidAttr}" onclick="focusStationOnMapEl(this)">
           <div class='station-main'>
             <div class='nav-block'>
               <div class='pk-val-wrap'><span class='pk-val'>${(s.km - kmFilter).toFixed(1)}</span><span class='pk-unit'>km</span></div>
@@ -2015,13 +2431,15 @@ function renderStationsList(kmFilter) {
               </div>
             </div>
             <div class='info-block'>
-              <div class='op-title op-name' title="${s.op}">${s.op}</div>
-              <div class='st-name' title="${s.nom}">${s.nom}</div>
-              <div class='st-commune'>${s.commune}</div>
+              ${badgeHtml}
+              <div class='op-title op-name' title="${escapeHtml(s.op)}">${escapeHtml(s.op)}</div>
+              <div class='st-name' title="${escapeHtml(s.nom)}">${escapeHtml(s.nom)}</div>
+              <div class='st-commune'>${escapeHtml(s.commune)}</div>
             </div>
             <div class='tech-block' onclick="event.stopPropagation(); document.getElementById('pdc_${i}').classList.toggle('show')">
               <div style='font-weight:bold; font-size:12px;'>${s.pwr}kW</div>
               <div class='${status}' style='font-size:11px; font-weight:bold;'>${s.dispo}/${s.total} PDC</div>
+              <button type="button" class="stage-btn${isStage ? ' on' : ''}" data-sid="${sidAttr}" onclick="event.stopPropagation(); toggleStageEl(this)" title="${isStage ? 'Retirer des étapes' : 'Choisir comme étape'}">${isStage ? '✓ Étape ' + n : '⚡ Étape'}</button>
             </div>
           </div>
           <div id='pdc_${i}' class='pdc-panel'>
@@ -2032,8 +2450,16 @@ function renderStationsList(kmFilter) {
           </div>
         </div>`;
     });
-    
-    document.getElementById('stationsContainer').innerHTML = html || "<div style='padding:20px; text-align:center;'>Aucune station trouvée avec ces critères.</div>";
+
+    syncStationMarkers(markerStations);
+
+    let emptyMsg = "Aucune station trouvée avec ces critères.";
+    if (STAGE_ONLY) {
+        emptyMsg = stageIds.size
+            ? "Aucune étape devant vous."
+            : "Aucune étape choisie.<br><small>Touchez « ⚡ Étape » sur une station, ou repassez sur « Toutes » dans les réglages.</small>";
+    }
+    document.getElementById('stationsContainer').innerHTML = html || `<div style='padding:20px; text-align:center;'>${emptyMsg}</div>`;
 }
 
 // Restaure les réglages bornes de la dernière session (objet JSON unique, même
