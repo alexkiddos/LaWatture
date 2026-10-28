@@ -516,19 +516,25 @@
       padding: 8px 10px; font: 500 11px/1.5 Inter, -apple-system, sans-serif;
       box-shadow: 0 1px 6px rgba(0,0,0,.18);
     }
-    .irve-legend .irve-row { display: flex; align-items: center; gap: 6px; }
+    .irve-legend { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; white-space: nowrap; padding: 5px 9px; max-width: calc(100vw - 20px); }
+    .irve-legend .irve-items { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; }
+    .irve-legend .irve-row { display: flex; align-items: center; gap: 4px; }
     .irve-legend .irve-dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0,0,0,.35); flex: none; }
-    .irve-legend .irve-status { margin-top: 4px; color: var(--muted); font-size: 10.5px; }
+    .irve-legend .irve-status { color: var(--muted); font-size: 10.5px; }
+    .irve-popup { font: 500 12px/1.35 Inter, -apple-system, sans-serif; }
     .irve-popup b { font-weight: 600; }
-    .irve-popup .irve-sub { color: #6B6B72; }
-    .irve-popup .irve-breakdown { margin: 6px 0 2px; }
-    .irve-popup .irve-row { display: flex; align-items: center; gap: 6px; line-height: 1.6; }
-    .irve-popup .irve-dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0,0,0,.35); flex: none; }
+    .irve-popup .irve-name { font-weight: 600; font-size: 12.5px; }
+    .irve-popup .irve-sub { color: #6B6B72; font-size: 11px; }
+    .irve-popup .irve-breakdown { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; margin: 4px 0 0; white-space: nowrap; }
+    .irve-popup .irve-row { display: inline-flex; align-items: center; gap: 3px; }
+    .irve-popup .irve-dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid rgba(0,0,0,.35); flex: none; }
+    .leaflet-popup-content:has(.irve-popup) { margin: 8px 10px; }
+    .leaflet-popup-content-wrapper:has(.irve-popup) { border-radius: 10px; }
     .irve-add-btn {
-      display: block; width: 100%; margin-top: 8px; padding: 8px 10px;
-      border: 0; border-radius: 8px; cursor: pointer;
+      display: block; width: 100%; margin-top: 6px; padding: 5px 8px;
+      border: 0; border-radius: 6px; cursor: pointer;
       background: var(--accent); color: var(--on-accent);
-      font: 600 12.5px Inter, -apple-system, sans-serif;
+      font: 600 11.5px Inter, -apple-system, sans-serif;
     }
     .irve-add-btn:active { opacity: .85; }
   </style>
@@ -1233,17 +1239,22 @@
     const IRVE_MAX_AGE_DAYS = 7;
     const IRVE_DATASET_URL = 'https://www.data.gouv.fr/api/1/datasets/infrastructures-de-recharge-pour-vehicules-electriques-donnees-ouvertes/';
     const IRVE_MAX_MARKERS = 4000;      // plafond de marqueurs affichés simultanément
-    const IRVE_FAST_ONLY_ZOOM = 8;      // en dessous : seulement les bornes >= 150 kW
+    const IRVE_FAST_ONLY_ZOOM = 8;      // en dessous : surcouche >= 50 kW limitée aux bornes >= 150 kW,
+                                        // surcouche < 50 kW masquée
     const IRVE_FAST_KW = 150;
+    const IRVE_SPLIT_KW = 50;           // seuil entre les deux surcouches
 
     map.createPane('irvePane');
     map.getPane('irvePane').style.zIndex = 450;
 
     const irveRenderer = L.canvas({ pane: 'irvePane', tolerance: 6 });
-    const irveLayer = L.layerGroup();
+    const irveLayerHigh = L.layerGroup();   // stations >= 50 kW
+    const irveLayerLow  = L.layerGroup();   // stations < 50 kW
+    const irveStatus = { high: '', low: '' };
+    let irveOpenSt = null;            // station dont l'étiquette est ouverte (réouverte après chaque rafraîchissement)
+    let irveRefreshing = false;       // vrai pendant la reconstruction des marqueurs
     let irveStations = null;            // tableau compact, trié par puissance décroissante
     let irveLoadingPromise = null;
-    let irveStatusText = '';
 
     function irveOpenDB() {
       return new Promise((resolve, reject) => {
@@ -1350,7 +1361,7 @@
     function ensureIrveLoaded() {
       if (irveStations) return Promise.resolve();
       if (irveLoadingPromise) return irveLoadingPromise;
-      irveStatusText = 'Chargement des bornes…';
+      irveStatus.high = irveStatus.low = 'Chargement…';
       irveUpdateLegend();
       irveLoadingPromise = (async () => {
         const t0 = performance.now();
@@ -1377,7 +1388,7 @@
         log('IRVE', irveStations.length + ' stations prêtes en ' + Math.round(performance.now() - t0) + ' ms.');
       })().catch(err => {
         log('IRVE', 'Échec du chargement des bornes : ' + err.message, true);
-        irveStatusText = 'Chargement impossible';
+        irveStatus.high = irveStatus.low = 'Chargement impossible';
         irveLoadingPromise = null;
         irveUpdateLegend();
       });
@@ -1412,14 +1423,14 @@
       const el = document.createElement('div');
       el.className = 'irve-popup';
       const breakdown = st.bk.map(([kw, n]) =>
-        '<div class="irve-row"><span class="irve-dot" style="background:' + irveColor(kw) + '"></span>' +
-        '<b>' + n + ' ×</b> ' + kw + ' kW</div>').join('');
+        '<span class="irve-row"><span class="irve-dot" style="background:' + irveColor(kw) + '"></span>' +
+        '<b>' + n + '×</b>' + kw + ' kW</span>').join('');
+      const title = irveEsc(st.nom || st.op);
+      const sub = [st.op && st.op !== st.nom ? st.op : '', st.adresse].filter(Boolean).map(irveEsc).join(' · ');
       el.innerHTML =
-        '<b>' + irveEsc(st.nom || st.op) + '</b><br>' +
-        '<span class="irve-sub">' + irveEsc(st.op) + '</span><br>' +
-        (st.adresse ? irveEsc(st.adresse) + '<br>' : '') +
-        '<div class="irve-breakdown">' + breakdown + '</div>' +
-        '<div class="irve-sub">' + st.n + ' point' + (st.n > 1 ? 's' : '') + ' de charge</div>';
+        '<div class="irve-name">' + title + '</div>' +
+        (sub ? '<div class="irve-sub">' + sub + '</div>' : '') +
+        '<div class="irve-breakdown">' + breakdown + '</div>';
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'irve-add-btn';
@@ -1430,63 +1441,94 @@
     }
 
     function irveRefresh() {
-      irveLayer.clearLayers();
-      if (!map.hasLayer(irveLayer) || !irveStations) { irveUpdateLegend(); return; }
+      irveRefreshing = true;          // la suppression des marqueurs ferme l'étiquette : on la rouvrira
+      irveLayerHigh.clearLayers();
+      irveLayerLow.clearLayers();
+      let reopen = null;
+      const highOn = map.hasLayer(irveLayerHigh), lowOn = map.hasLayer(irveLayerLow);
+      if (!irveStations || (!highOn && !lowOn)) { irveRefreshing = false; irveOpenSt = null; irveUpdateLegend(); return; }
       const zoom = map.getZoom();
       const fastOnly = zoom < IRVE_FAST_ONLY_ZOOM;
       const bounds = map.getBounds().pad(0.1);
       const radius = zoom < 9 ? 4 : zoom < 12 ? 5 : 7;
-      let shown = 0, truncated = false;
+      const shown = { high: 0, low: 0 }, truncated = { high: false, low: false };
       for (const st of irveStations) {            // trié par puissance décroissante
-        if (fastOnly && st.pwr < IRVE_FAST_KW) break;
+        const isHigh = st.pwr >= IRVE_SPLIT_KW;
+        const key = isHigh ? 'high' : 'low';
+        if (isHigh ? !highOn : !lowOn) { if (isHigh) continue; else break; }
+        if (!isHigh && fastOnly) break;           // < 50 kW : uniquement à partir du zoom 8
+        if (isHigh && fastOnly && st.pwr < IRVE_FAST_KW) continue;
         if (!bounds.contains([st.lat, st.lon])) continue;
-        if (shown >= IRVE_MAX_MARKERS) { truncated = true; break; }
-        L.circleMarker([st.lat, st.lon], {
+        if (shown[key] >= IRVE_MAX_MARKERS && st !== irveOpenSt) { truncated[key] = true; continue; }
+        const marker = L.circleMarker([st.lat, st.lon], {
           renderer: irveRenderer, pane: 'irvePane',
           radius, color: '#fff', weight: 1, fillColor: irveColor(st.pwr), fillOpacity: 0.95,
           bubblingMouseEvents: false     // un clic sur une borne ne doit pas poser un point d'itinéraire
-        }).bindPopup(() => irvePopup(st)).addTo(irveLayer);
-        shown++;
+        }).bindPopup(() => irvePopup(st), { maxWidth: 230, minWidth: 0, autoPan: false })
+          .on('click', () => {
+            irveOpenSt = st;
+            map.panTo([st.lat, st.lon], { animate: true });   // centre la carte sur la station
+          })
+          .addTo(isHigh ? irveLayerHigh : irveLayerLow);
+        if (st === irveOpenSt) reopen = marker;
+        shown[key]++;
       }
-      irveStatusText = shown + ' station' + (shown > 1 ? 's' : '') + ' affichée' + (shown > 1 ? 's' : '') +
-        (fastOnly ? ' (≥ 150 kW, zoomez pour tout voir)' : truncated ? ' (zoomez pour affiner)' : '');
+      if (reopen) reopen.openPopup(); else irveOpenSt = null;
+      irveRefreshing = false;
+      const txt = (key, hint) => shown[key] + ' station' + (shown[key] > 1 ? 's' : '') + (hint ? ' ' + hint : '');
+      irveStatus.high = txt('high', fastOnly ? '(≥ 150 kW, zoomez)' : truncated.high ? '(zoomez)' : '');
+      irveStatus.low  = fastOnly ? 'zoomez pour afficher' : txt('low', truncated.low ? '(zoomez)' : '');
       irveUpdateLegend();
     }
 
+    // Légende unique, sur UNE seule ligne, qui ne montre que les entrées des surcouches actives
     const irveLegend = L.control({ position: 'bottomright' });
     irveLegend.onAdd = function () {
       const div = L.DomUtil.create('div', 'irve-legend');
       L.DomEvent.disableClickPropagation(div);
-      div.innerHTML =
-        '<div class="irve-row"><span class="irve-dot" style="background:#1fa855"></span>≥ 150 kW</div>' +
-        '<div class="irve-row"><span class="irve-dot" style="background:#0B72E7"></span>50 – 149 kW</div>' +
-        '<div class="irve-row"><span class="irve-dot" style="background:#f39c12"></span>22 – 49 kW</div>' +
-        '<div class="irve-row"><span class="irve-dot" style="background:#8a8a93"></span>&lt; 22 kW</div>' +
-        '<div class="irve-status"></div>';
       return div;
     };
     function irveUpdateLegend() {
       const el = irveLegend.getContainer && irveLegend.getContainer();
-      if (el) el.querySelector('.irve-status').textContent = irveStatusText;
+      if (!el) return;
+      const dot = (c, t) => '<span class="irve-row"><span class="irve-dot" style="background:' + c + '"></span>' + t + '</span>';
+      const highOn = map.hasLayer(irveLayerHigh), lowOn = map.hasLayer(irveLayerLow);
+      const status = [highOn ? irveStatus.high : '', lowOn ? irveStatus.low : ''].filter(Boolean);
+      el.innerHTML =
+        '<div class="irve-items">' +
+          (highOn ? dot('#1fa855', '≥ 150 kW') + dot('#0B72E7', '50–149 kW') : '') +
+          (lowOn  ? dot('#f39c12', '22–49 kW') + dot('#8a8a93', '&lt; 22 kW') : '') +
+        '</div>' +
+        (status.length ? '<div class="irve-status">' + status.join(' · ') + '</div>' : '');
     }
 
+    // Fermeture volontaire de l'étiquette (croix, clic sur la carte…) : on oublie la station
+    map.on('popupclose', () => { if (!irveRefreshing) irveOpenSt = null; });
+
+    const isIrveLayer = (l) => l === irveLayerHigh || l === irveLayerLow;
     map.on('overlayadd', (e) => {
-      if (e.layer !== irveLayer) return;
-      irveLegend.addTo(map);
+      if (!isIrveLayer(e.layer)) return;
+      if (!irveLegend.getContainer || !irveLegend.getContainer()) irveLegend.addTo(map);
+      irveUpdateLegend();
       ensureIrveLoaded().then(irveRefresh);
     });
     map.on('overlayremove', (e) => {
-      if (e.layer !== irveLayer) return;
-      irveLayer.clearLayers();
-      map.removeControl(irveLegend);
+      if (!isIrveLayer(e.layer)) return;
+      e.layer.clearLayers();
+      if (!map.hasLayer(irveLayerHigh) && !map.hasLayer(irveLayerLow)) {
+        map.removeControl(irveLegend);
+      } else {
+        irveRefresh();
+      }
     });
-    map.on('moveend', () => { if (map.hasLayer(irveLayer)) irveRefresh(); });
+    map.on('moveend', () => { if (map.hasLayer(irveLayerHigh) || map.hasLayer(irveLayerLow)) irveRefresh(); });
 
     /* --- CONTRÔLE DES CALQUES & ÉCHELLE --- */
     const baseLayers = { "OpenStreetMap.de": osmDeLayer };
     const overlayLayers = {
       "Routes payantes (Péages)": tollLayer,
-      "Bornes de recharge (IRVE)": irveLayer
+      "Bornes de recharge ≥ 50 kW (IRVE)": irveLayerHigh,
+      "Bornes de recharge < 50 kW (IRVE)": irveLayerLow
     };
 
     const layerControl = L.control.layers(baseLayers, overlayLayers, { 
