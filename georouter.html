@@ -2608,6 +2608,41 @@
     }
 
 
+    // Recrée départ / étapes / points de passage / arrivée à partir du bloc "georouter" d'un JSON exporté,
+    // pour pouvoir rééditer l'itinéraire. Retourne false si le bloc est absent ou incomplet.
+    function restoreRoutePoints(wps) {
+      if (!Array.isArray(wps)) return false;
+      const valid = w => w && isFinite(w.lat) && isFinite(w.lon);
+      const start = wps.find(w => w.kind === 'start' && valid(w));
+      const end = wps.find(w => w.kind === 'end' && valid(w));
+      const mids = wps.filter(w => (w.kind === 'stop' || w.kind === 'pass') && valid(w));
+      if (!start || !end) return false;
+
+      const ll = w => L.latLng(w.lat, w.lon);
+      const label = w => w.name || `${w.lat.toFixed(5)}, ${w.lon.toFixed(5)}`;
+
+      routePoints.vias = [];
+      routePoints.viaKinds = [];
+      setPoint('start', ll(start), label(start));
+      setPoint('end', ll(end), label(end));
+      mids.forEach(w => { routePoints.vias.push(ll(w)); routePoints.viaKinds.push(w.kind); });
+      renderViaInputs();
+      mids.forEach((w, i) => {
+        const input = document.getElementById(`via-input-${i}`);
+        if (input) { input.value = label(w); toggleClearBtn(`via-input-${i}`, `via-clear-${i}`); }
+      });
+      updateMarkers();
+
+      // Même état que juste après un calcul : détail du trajet et ajout d'étape sur le tracé fonctionnent
+      lastRouteViaKinds = mids.map(w => w.kind);
+      lastRouteWaypoints = [
+        { kind: 'start', ref: routePoints.start },
+        ...routePoints.vias.map((v, i) => ({ kind: viaKind(i), viaIndex: i, ref: v })),
+        { kind: 'end', ref: routePoints.end }
+      ];
+      return true;
+    }
+
     function importJSON(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -2622,8 +2657,11 @@
             rawRouteResponse = data;
             lastRouteViaKinds = [];
             lastRouteWaypoints = null;
+            // Bloc "georouter" (export GeoRouter) : on restaure départ, étapes, points de passage et arrivée
+            const restored = restoreRoutePoints(data.georouter && data.georouter.waypoints);
             await processRouteResponse(data.paths[0]);
-            log('IMPORT', `Import réussi (format GraphHopper) : ${data.paths[0].points.coordinates.length} points.`);
+            log('IMPORT', `Import réussi (format GraphHopper) : ${data.paths[0].points.coordinates.length} points.`
+              + (restored ? ` Points restaurés : ${routePoints.vias.length} intermédiaire(s), itinéraire modifiable.` : ' Aucun point d\'itinéraire dans ce fichier (non modifiable).'));
           } else {
             throw new Error("Format non supporté (JSON GraphHopper attendu).");
           }
@@ -2652,9 +2690,28 @@
       log('EXPORT', `GPX exporté (${decodedRouteCoords.length} points).`);
     }
 
+    // Réponse GraphHopper + bloc "georouter" (départ, étapes, points de passage, arrivée)
+    // lu par Roadbook VE pour retrouver les étapes choisies.
+    function buildExportData() {
+      const waypoints = (lastRouteWaypoints || []).map((w, i) => {
+        let name = '';
+        if (w.kind === 'start') name = document.getElementById('start-input').value;
+        else if (w.kind === 'end') name = document.getElementById('end-input').value;
+        else name = (document.getElementById(`via-input-${w.viaIndex}`) || {}).value || '';
+        return {
+          kind: w.kind,                       // 'start' | 'stop' | 'pass' | 'end'
+          name,
+          lat: w.ref.lat,
+          lon: w.ref.lng,
+          distKm: routeWpCum ? +(routeWpCum[i] / 1000).toFixed(2) : null
+        };
+      });
+      return { ...rawRouteResponse, georouter: { version: 1, waypoints } };
+    }
+
     function exportJSON() {
       if (!rawRouteResponse) return;
-      const blob = new Blob([JSON.stringify(rawRouteResponse, null, 2)], { type: 'application/json' });
+      const blob = new Blob([JSON.stringify(buildExportData(), null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -2677,7 +2734,7 @@
         const payload = {
           type: 'json',
           filename: 'itineraire.json',
-          content: JSON.stringify(rawRouteResponse),
+          content: JSON.stringify(buildExportData()),
           source: 'georouter',
           ts: Date.now()
         };

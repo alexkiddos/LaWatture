@@ -606,6 +606,7 @@ let currentViewMode = 'STATIONS';
 
 /* --- Étapes (stations choisies comme étapes), bandeau distance/temps --- */
 const ETAPES_KEY = 'roadbook_etapes';
+let importedStops = [];        // étapes reçues de GeoRouter, à rapprocher des stations IRVE
 let stageIds = new Set();      // ids stables (String) des stations choisies pour la trace courante
 let stageOrder = new Map();    // id -> numéro d'étape (1, 2, ...) dans l'ordre du trajet
 let currentTraceKey = '';
@@ -1369,6 +1370,7 @@ function handleTraceUpload(event) {
 function processTraceContent(content, filename) {
     gpxPoints = [];
     roadbookManeuvers = [];
+    importedStops = [];
     traceHasTime = false;
     globalData = []; // les stations de la trace précédente (km/étapes) ne doivent pas survivre
 
@@ -1550,6 +1552,10 @@ function parseJSONTrace(jsonString) {
                 });
             });
         }
+        if (data.paths && data.paths.length > 0) {
+            importedStops = ((data.georouter && data.georouter.waypoints) || []).filter(w => w.kind === 'stop');
+            if (importedStops.length) log("IMPORT", `${importedStops.length} étape(s) reçue(s) de GeoRouter.`);
+        }
         else if (data.features && data.features[0] && data.features[0].geometry) {
             const geom = data.features[0].geometry;
             if (geom.type === "LineString") {
@@ -1675,6 +1681,22 @@ async function processStaticData(rawData) {
         st.pdcs.push(row.id_pdc_itinerance);
     };
     rawData.forEach(row => addRow(row, false));
+
+    if (importedStops.length) {
+        importedStops.forEach(s => {
+            let bestId = null, bestD = 0.15; // tolérance : 150 m
+            rawData.forEach(row => {
+                if (!row.coordonneesXY) return;
+                const c = row.coordonneesXY.replace('[','').replace(']','').split(',');
+                const d = distanceHaversine(s.lat, s.lon, parseFloat(c[1]), parseFloat(c[0]));
+                if (d < bestD) { bestD = d; bestId = String(row.id_station_itinerance || row.nom_station); }
+            });
+            if (bestId) stageIds.add(bestId);
+            else log("ÉTAPES", `Aucune station IRVE près de l'étape « ${s.name || (s.lat + ',' + s.lon)} ».`);
+        });
+        importedStops = [];
+        saveStages();
+    }
 
     // Les étapes choisies ne disparaissent pas à cause du filtre de puissance :
     // si une station-étape n'a retenu aucune ligne, on la reconstitue sans seuil.
