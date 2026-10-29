@@ -282,19 +282,6 @@
       
       
 
-      /* --- Bandeau distance / temps (étape suivante + arrivée) --- */
-      .trip-banner { background: var(--pdc-bg); border: 1px solid var(--border); border-radius: 10px; padding: 4px 10px; margin-bottom: 10px; }
-      .trip-banner[hidden] { display: none; }
-      .trip-row { display: grid; grid-template-columns: 20px minmax(0,1fr) auto auto auto; align-items: baseline; column-gap: 8px; padding: 4px 0; font-size: 13px; }
-      .trip-row + .trip-row { border-top: 1px solid var(--border); }
-      .trip-row.trip-stage { cursor: pointer; }
-      .trip-ico { text-align: center; font-size: 13px; }
-      .trip-label { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-      .trip-stage .trip-label { color: var(--accent); }
-      .trip-detour { font-size: 11px; font-weight: 600; opacity: 0.7; white-space: nowrap; }
-      .trip-km { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; white-space: nowrap; text-align: right; }
-      .trip-time { font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 13px; color: var(--muted); white-space: nowrap; min-width: 52px; text-align: right; }
-
       /* --- Étapes : carte surlignée, badge, bouton --- */
       .station-card.is-stage { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--pdc-bg); }
       @supports (background: color-mix(in srgb, red 10%, white)) {
@@ -333,6 +320,19 @@
       .st-popup .pp-btn { height: 40px; border-radius: 8px; border: 1px solid #C3C4CB; background: #EEF0F3; color: #111114; font-family: inherit; font-size: 12px; font-weight: 700; padding: 0 6px; cursor: pointer; white-space: nowrap; }
       .st-popup .pp-btn-main { background: #0B72E7; border-color: #0B72E7; color: #fff; }
 
+      /* --- Module Trajet : vue d'ensemble + détail de l'itinéraire --- */
+      .trip-node { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line-strong); background: var(--card-bg); border-radius: 12px; padding: 9px 10px; cursor: pointer; }
+      .trip-node.passed { opacity: 0.5; }
+      .trip-node.is-next { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+      .tn-ico { width: 24px; text-align: center; font-size: 17px; flex-shrink: 0; }
+      .tn-main { flex: 1; min-width: 0; }
+      .tn-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .trip-node.is-stage .tn-title { color: var(--op-color); }
+      .tn-sub { font-size: 12px; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+      .tn-right { text-align: right; flex-shrink: 0; }
+      .tn-km { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; white-space: nowrap; }
+      .tn-time { font-size: 11px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+      .trip-leg { margin-left: 22px; padding: 4px 0 4px 14px; border-left: 2px dashed var(--line-strong); font-size: 11.5px; font-weight: 600; color: var(--muted); }
       .user-loc-icon { background: transparent !important; border: none !important; }
       .user-loc-arrow { width: 28px; height: 28px; transition: transform 0.3s ease-out; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.4)); }
     </style>
@@ -361,7 +361,7 @@
     <div class="sheet-pinned" id="sheetPinned">
       <div class="header-controls">
         <input type='number' id='kmInput' class='input-field' value="0" step="1" oninput='onKmInputChange()' max="9999">
-        <button id="btnToggleMode" class="mode-switch-btn" onclick="toggleViewMode()" title="Passer à la feuille de route">
+        <button id="btnToggleMode" class="mode-switch-btn" onclick="toggleViewMode()" title="Passer au guidage">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg>
           <span id="btnToggleModeLabel">Stations</span>
         </button>
@@ -380,7 +380,6 @@
           </button>
         </div>
       </div>
-      <div id="tripBanner" class="trip-banner" hidden></div>
     </div>
 
     <div class="sheet-body" id="sheetBody">
@@ -508,6 +507,7 @@ function pinnedContentHeight() {
 function sheetHeightsPx() {
   const vh = window.innerHeight;
   return {
+    hidden: sheetHandleZone.offsetHeight, // tiroir caché : seule la poignée reste visible pour le rouvrir
     low: pinnedContentHeight(),
     mid: Math.round(vh * 0.52),
     high: Math.max(vh - 4, 0) // la carte (ou les logs) est quasi entièrement masquée
@@ -569,7 +569,7 @@ document.addEventListener('pointermove', (e) => {
   const dy = e.clientY - sheetDrag.startY;
   sheetDrag.moved = Math.max(sheetDrag.moved, Math.abs(dy));
   const h = sheetHeightsPx();
-  const newHeight = Math.min(Math.max(sheetDrag.startHeight - dy, h.low), h.high);
+  const newHeight = Math.min(Math.max(sheetDrag.startHeight - dy, h.hidden), h.high);
   applySheetHeight(newHeight);
 });
 
@@ -578,8 +578,9 @@ document.addEventListener('pointerup', () => {
   sheet.classList.remove('dragging');
   if (sheetDrag.moved < 6) {
     // Tap sur la poignée : fait défiler basse -> milieu -> haute -> basse
+    // (depuis la position cachée, un tap rouvre en position basse ; on ne cache que par glissement)
     const order = ['low', 'mid', 'high'];
-    setSheetState(order[(order.indexOf(sheetState) + 1) % order.length]);
+    setSheetState(sheetState === 'hidden' ? 'low' : order[(order.indexOf(sheetState) + 1) % order.length]);
   } else {
     const currentHeight = sheet.getBoundingClientRect().height;
     const h = sheetHeightsPx();
@@ -613,6 +614,7 @@ let AVG_SPEED_KMH = 90;        // utilisée seulement si la trace n'a pas de dur
 let traceHasTime = false;      // true si gpxPoints[i].t (ms depuis le départ) est renseigné
 let positionKm = 0;            // dernier km "précis" utilisé pour les rendus
 let stationIndex = new Map(), stationIndexSrc = null;
+let tripPlaces = { end: '', loaded: false };      // commune d'arrivée (module Trajet)
 
 /* --- Réglages bornes : réglables depuis le panneau ⚙️, persistés en UN SEUL objet
    localStorage (même mécanique que GeoRouter : sauvegarderReglages/restaurerReglages,
@@ -665,29 +667,44 @@ const NAV_CLOSE_ZOOM = 11;
 const NAV_MAX_OVERVIEW_ZOOM = 16;
 const franceBounds = L.latLngBounds([41.3, -5.2], [51.1, 9.6]);
 
-function toggleViewMode() {
-    const btn = document.getElementById('btnToggleMode');
-    const label = document.getElementById('btnToggleModeLabel');
-    const ICON_BOLT = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg>';
-    const ICON_ROUTE = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 2 4.5 20.29 12 17l7.5 3.29L12 2Z"/></svg>';
-    if (currentViewMode === 'STATIONS') {
-        currentViewMode = 'ROADBOOK';
-        btn.innerHTML = ICON_ROUTE + '<span id="btnToggleModeLabel">Feuille de route</span>';
-        btn.title = "Revenir aux stations de recharge";
-    } else {
-        currentViewMode = 'STATIONS';
-        btn.innerHTML = ICON_BOLT + '<span id="btnToggleModeLabel">Stations</span>';
-        btn.title = "Passer à la feuille de route";
+// Trois modules, qui défilent au fil des appuis sur le bouton central :
+// Stations -> Guidage -> Trajet -> Stations
+const VIEW_MODES = {
+    STATIONS: {
+        label: 'Stations', next: 'ROADBOOK',
+        icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg>'
+    },
+    ROADBOOK: {
+        label: 'Guidage', next: 'TRAJET',
+        icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 2 4.5 20.29 12 17l7.5 3.29L12 2Z"/></svg>'
+    },
+    TRAJET: {
+        label: 'Trajet', next: 'STATIONS',
+        icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="5" r="2.2"/><path d="M6 16.8V13a3 3 0 0 1 3-3h6a3 3 0 0 0 3-3V7.2"/></svg>'
     }
+};
+
+function setViewMode(mode) {
+    const def = VIEW_MODES[mode];
+    if (!def) return;
+    currentViewMode = mode;
+    const btn = document.getElementById('btnToggleMode');
+    btn.innerHTML = def.icon + '<span id="btnToggleModeLabel">' + def.label + '</span>';
+    btn.title = 'Passer à : ' + VIEW_MODES[def.next].label;
     updateOperatorVisibility();
+    document.getElementById('sheetBody').scrollTop = 0;
     renderList();
+}
+
+function toggleViewMode() {
+    setViewMode(VIEW_MODES[currentViewMode].next);
 }
 
 /* --- Panneau réglages : ouvert/fermé via l'icône ⚙️ du bandeau --- */
 let settingsExpanded = false;
 
 function updateOperatorVisibility() {
-    // Le filtre opérateur n'a de sens qu'en mode Stations (pas en Feuille de route)
+    // Le filtre opérateur n'a de sens qu'en mode Stations (pas en Guidage ni en Trajet)
     document.getElementById('operatorSettingsBlock').style.display = (currentViewMode === 'STATIONS') ? '' : 'none';
     document.getElementById('operatorSelectContainer').style.display = (currentViewMode === 'STATIONS') ? '' : 'none';
 }
@@ -697,7 +714,7 @@ function toggleSettingsPanel(e) {
     settingsExpanded = !settingsExpanded;
     document.getElementById('settingsPanel').hidden = !settingsExpanded;
     document.getElementById('settingsToggleBtn').classList.toggle('tool-active', settingsExpanded);
-    if (settingsExpanded && sheetState === 'low') setSheetState('mid');
+    if (settingsExpanded && (sheetState === 'low' || sheetState === 'hidden')) setSheetState('mid');
 }
 
 function closeSettingsPanel() {
@@ -1380,7 +1397,7 @@ function processTraceContent(content, filename) {
     currentTraceKey = computeTraceKey(filename);
     loadStages();
     syncStationMarkers([]);
-    updateTripBanner(parseFloat(document.getElementById('kmInput').value) || 0);
+    resolveTripPlaces();
 
     if(gpxLineFuture) map.removeLayer(gpxLineFuture);
     if(gpxLinePast) map.removeLayer(gpxLinePast);
@@ -2005,11 +2022,11 @@ function renderList(kmOverride) {
 
     if (currentViewMode === 'ROADBOOK') {
         renderRoadbookList(kmFilter);
+    } else if (currentViewMode === 'TRAJET') {
+        renderTripList(kmFilter);
     } else {
         renderStationsList(kmFilter);
     }
-
-    updateTripBanner(kmFilter);
 
     // La position basse dévoile la prochaine carte (station ou instruction) :
     // si son contenu vient de changer de hauteur, on réajuste tout de suite.
@@ -2216,41 +2233,6 @@ function timeAtKm(km) {
 }
 function travelMs(fromKm, toKm) { return Math.max(0, timeAtKm(toKm) - timeAtKm(fromKm)); }
 
-function updateTripBanner(km) {
-    const el = document.getElementById('tripBanner');
-    if (!el) return;
-    if (!gpxPoints.length) { el.hidden = true; el.innerHTML = ''; return; }
-
-    const totalKm = gpxPoints[gpxPoints.length - 1].km;
-    const k = Math.min(Math.max(km || 0, 0), totalKm);
-    let html = '';
-
-    const next = stageStations().find(s => s.km > k);
-    if (next) {
-        const sid = String(next.id);
-        const n = stageOrder.get(sid) || '';
-        html += `
-        <div class="trip-row trip-stage" data-sid="${escapeHtml(sid)}" onclick="focusStationOnMapEl(this)" title="Voir sur la carte">
-          <span class="trip-ico">⚡</span>
-          <span class="trip-label">Étape ${n} · ${escapeHtml(next.op)}</span>
-          <span class="trip-detour">↳ ${next.detour.toFixed(1)} km</span>
-          <span class="trip-km">${formatDistKm(next.km - k)}</span>
-          <span class="trip-time">${formatDuration(travelMs(k, next.km))}</span>
-        </div>`;
-    }
-    html += `
-        <div class="trip-row">
-          <span class="trip-ico">🏁</span>
-          <span class="trip-label">Arrivée</span>
-          <span class="trip-detour"></span>
-          <span class="trip-km">${formatDistKm(totalKm - k)}</span>
-          <span class="trip-time">${formatDuration(travelMs(k, totalKm))}</span>
-        </div>`;
-
-    el.innerHTML = html;
-    el.hidden = false;
-}
-
 /* ===================== MARQUEURS & ÉTIQUETTE ===================== */
 
 function stationColor(s) {
@@ -2377,12 +2359,109 @@ function scrollToStationCard(sid) {
 
 function showInList(sid) {
     if (mapReady) map.closePopup();
-    if (currentViewMode !== 'STATIONS') toggleViewMode();   // les cartes stations ne sont affichées qu'en mode Stations
-    // La position du panneau (basse, moyenne, haute) n'est jamais modifiée : en position basse,
+    if (currentViewMode !== 'STATIONS') setViewMode('STATIONS');   // les cartes stations ne sont affichées qu'en mode Stations
+    // La position du panneau (basse, moyenne, haute) n'est pas modifiée (sauf s'il était caché) : en position basse,
     // la station se cale en haut de la zone visible, c'est-à-dire à la place de la 1re carte.
-    setTimeout(() => scrollToStationCard(sid), 60);
+    const wasHidden = (sheetState === 'hidden');
+    if (wasHidden) setSheetState('low');   // rouvre juste ce qu'il faut pour voir la station
+    setTimeout(() => scrollToStationCard(sid), wasHidden ? 330 : 60);
 }
 function showInListEl(el) { showInList(el.dataset.sid); }
+
+/* ===================== MODULE TRAJET ===================== */
+
+const PLACES_KEY = 'roadbook_places';
+
+// Nom de la commune au point donné (utilisé pour l'arrivée) (API officielle geo.api.gouv.fr, déjà utilisée par l'appli pour la
+// base des communes). Résultat mis en cache (≈100 m de précision) pour fonctionner ensuite hors-ligne.
+async function reverseCommune(lat, lon) {
+    const key = lat.toFixed(3) + ',' + lon.toFixed(3);
+    let cache = {};
+    try { cache = JSON.parse(localStorage.getItem(PLACES_KEY) || '{}') || {}; } catch (e) {}
+    if (cache[key]) return cache[key];
+    try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 7000);
+        const r = await fetch(`https://geo.api.gouv.fr/communes?lat=${lat}&lon=${lon}&fields=nom&limit=1`, { signal: ctrl.signal });
+        clearTimeout(timer);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const j = await r.json();
+        const nom = (j && j[0] && j[0].nom) || '';
+        if (nom) {
+            cache[key] = nom;
+            const keys = Object.keys(cache);
+            while (keys.length > 60) delete cache[keys.shift()];
+            try { localStorage.setItem(PLACES_KEY, JSON.stringify(cache)); } catch (e) {}
+        }
+        return nom;
+    } catch (err) {
+        log("TRAJET", "Commune introuvable (hors-ligne ?) : " + err.message, true);
+        return '';
+    }
+}
+
+async function resolveTripPlaces() {
+    tripPlaces = { end: '', loaded: false };
+    if (!gpxPoints.length) return;
+    const key = currentTraceKey;
+    const l = gpxPoints[gpxPoints.length - 1];
+    const name = await reverseCommune(l.lat, l.lon);
+    if (currentTraceKey !== key) return; // une autre trace a été chargée entre-temps
+    tripPlaces = { end: name, loaded: true };
+    if (currentViewMode === 'TRAJET') renderList();
+}
+
+function focusPoint(lat, lon) { if (mapReady) map.setView([lat, lon], 13); }
+
+function renderTripList(kmFilter) {
+    // Seules les étapes restent visibles sur la carte, comme en Guidage
+    refreshStageOrder();
+    syncStationMarkers(stageStations());
+
+    const box = document.getElementById('stationsContainer');
+    if (!gpxPoints.length) {
+        box.innerHTML = "<div style='padding:20px; text-align:center;'>Aucune trace chargée.</div>";
+        return;
+    }
+
+    const last = gpxPoints[gpxPoints.length - 1];
+    const stages = stageStations();
+    const endName = tripPlaces.end ? escapeHtml(tripPlaces.end) : (tripPlaces.loaded ? 'Commune inconnue' : 'Recherche de la commune…');
+
+    // Étapes (dans l'ordre du trajet) puis arrivée
+    // Seules les étapes encore devant vous sont listées : les étapes franchies disparaissent.
+    const nodes = [...stages.filter(s => s.km >= kmFilter).map(s => ({ type: 'stage', km: s.km, s })), { type: 'end', km: last.km }];
+    const nextIdx = 0; // le premier point de la liste est toujours le prochain
+
+    let html = '';
+    nodes.forEach((nd, idx) => {
+        if (idx > 0) {
+            const prev = nodes[idx - 1];
+            html += `<div class="trip-leg">↓ ${formatDistKm(nd.km - prev.km)} · ${formatDuration(travelMs(prev.km, nd.km))}</div>`;
+        }
+        const cls = 'trip-node' + (idx === nextIdx ? ' is-next' : '') + (nd.type === 'stage' ? ' is-stage' : '');
+        // Distance et temps RESTANTS depuis la position actuelle (champ km manuel, GPS ou simulation) :
+        // recalculés à chaque rendu, donc à chaque changement de km.
+        const right = `<div class="tn-right"><div class="tn-km">${formatDistKm(nd.km - kmFilter)}</div><div class="tn-time">${formatDuration(travelMs(kmFilter, nd.km))}</div></div>`;
+
+        if (nd.type === 'stage') {
+            const sid = String(nd.s.id);
+            const n = stageOrder.get(sid) || '';
+            html += `<div class="${cls}" data-sid="${escapeHtml(sid)}" onclick="focusStationOnMapEl(this)">
+              <span class="tn-ico">⚡</span>
+              <div class="tn-main"><div class="tn-title">Étape ${n} · ${escapeHtml(nd.s.op)}</div><div class="tn-sub">${escapeHtml(nd.s.commune)}</div></div>${right}</div>`;
+        } else {
+            html += `<div class="${cls}" onclick="focusPoint(${last.lat}, ${last.lon})">
+              <span class="tn-ico">🏁</span>
+              <div class="tn-main"><div class="tn-title">Arrivée</div><div class="tn-sub">${endName}</div></div>${right}</div>`;
+        }
+    });
+
+    if (!stages.length) { // aucune étape choisie du tout (et non « toutes franchies »)
+        html += "<div style='padding:14px 4px 4px; font-size:12px; color:var(--muted); text-align:center;'>Aucune étape choisie : ajoutez-en depuis le module Stations (touchez une station, puis « ⚡ Étape »).</div>";
+    }
+    box.innerHTML = html;
+}
 
 /* ===================== LISTE DES STATIONS ===================== */
 
