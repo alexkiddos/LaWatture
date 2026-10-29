@@ -300,9 +300,7 @@
       @supports (background: color-mix(in srgb, red 10%, white)) {
         .station-card.is-stage { background: color-mix(in srgb, var(--accent) 10%, var(--card-bg)); }
       }
-      .stage-badge { font-size: 10.5px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 1px; }
-      .stage-btn { margin-top: 5px; padding: 3px 7px; font-family: inherit; font-size: 10.5px; font-weight: 700; line-height: 1.3; white-space: nowrap; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--panel-2); color: var(--text); cursor: pointer; }
-      .stage-btn.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+      .stage-badge { display: block; margin-top: 5px; padding: 1px 0; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-size: 10px; font-weight: 700; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .station-card.flash { animation: card-flash 1.6s ease-out 1; }
       @keyframes card-flash {
         0%, 45% { box-shadow: 0 0 0 4px var(--accent); }
@@ -314,21 +312,25 @@
       .st-dot { width: 18px; height: 18px; box-sizing: border-box; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.25); opacity: 0.95; }
       .st-pin { width: 30px; height: 30px; box-sizing: border-box; border-radius: 50%; background: #0B72E7; border: 4px solid #16a34a; color: #fff; display: flex; align-items: center; justify-content: center; font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 13px; box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(0,0,0,0.45); }
 
-      /* --- Étiquette (popup) de station : fond Leaflet blanc, couleurs fixes --- */
-      .st-popup { font-family: 'Inter', sans-serif; color: #111114; min-width: 210px; }
-      .st-popup .pp-op { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px; }
-      .st-popup .pp-badge { background: #0B72E7; color: #fff; border-radius: 999px; padding: 1px 7px; font-size: 10.5px; font-weight: 700; white-space: nowrap; }
-      .st-popup .pp-name { font-size: 12px; opacity: 0.85; margin-top: 1px; }
-      .st-popup .pp-dist { display: flex; align-items: baseline; gap: 8px; margin-top: 7px; flex-wrap: wrap; }
-      .st-popup .pp-km { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 20px; }
-      .st-popup .pp-time { font-size: 13px; font-weight: 600; color: #6B6B72; }
-      .st-popup .pp-detour { font-size: 12px; font-weight: 600; color: #6B6B72; }
-      .st-popup .pp-passed { font-size: 13px; font-weight: 600; color: #6B6B72; }
-      .st-popup .pp-tech { font-size: 12px; font-weight: 600; margin-top: 4px; }
-      .st-popup .pp-links { font-size: 11px; margin-top: 4px; }
-      .st-popup .pp-links a { color: #0B72E7; font-weight: 700; text-decoration: underline; }
-      .st-popup .pp-actions { display: grid; grid-template-columns: auto 1fr; gap: 6px; margin-top: 9px; }
-      .st-popup .pp-btn { height: 36px; border-radius: 8px; border: 1px solid #C3C4CB; background: #EEF0F3; color: #111114; font-family: inherit; font-size: 12px; font-weight: 700; padding: 0 10px; cursor: pointer; white-space: nowrap; }
+      /* --- Étiquette (popup) de station, compacte pour smartphone (fond Leaflet blanc, couleurs fixes) --- */
+      .st-leaflet-popup .leaflet-popup-content-wrapper { border-radius: 10px; }
+      .st-leaflet-popup .leaflet-popup-content { margin: 8px 10px; line-height: 1.3; }
+      .st-popup { font-family: 'Inter', sans-serif; color: #111114; }
+      .st-popup .pp-op { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 5px; min-width: 0; }
+      .st-popup .pp-op-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+      .st-popup .pp-badge { background: #0B72E7; color: #fff; border-radius: 999px; padding: 1px 6px; font-size: 10px; font-weight: 700; white-space: nowrap; flex-shrink: 0; }
+      .st-popup .pp-name { font-size: 11.5px; opacity: 0.85; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .st-popup .pp-dist { display: flex; align-items: baseline; gap: 6px; margin-top: 5px; white-space: nowrap; }
+      .st-popup .pp-km { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 16px; }
+      .st-popup .pp-time { font-size: 12px; font-weight: 600; color: #6B6B72; }
+      .st-popup .pp-detour { font-size: 11px; font-weight: 600; color: #6B6B72; }
+      .st-popup .pp-passed { font-size: 12px; font-weight: 600; color: #6B6B72; }
+      .st-popup .pp-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 3px; }
+      .st-popup .pp-tech { font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+      .st-popup .pp-links { display: flex; gap: 2px; flex-shrink: 0; }
+      .st-popup .pp-links a { font-size: 17px; line-height: 1; padding: 4px 6px; text-decoration: none; }
+      .st-popup .pp-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+      .st-popup .pp-btn { height: 40px; border-radius: 8px; border: 1px solid #C3C4CB; background: #EEF0F3; color: #111114; font-family: inherit; font-size: 12px; font-weight: 700; padding: 0 6px; cursor: pointer; white-space: nowrap; }
       .st-popup .pp-btn-main { background: #0B72E7; border-color: #0B72E7; color: #fff; }
 
       .user-loc-icon { background: transparent !important; border: none !important; }
@@ -2284,7 +2286,12 @@ function syncStationMarkers(list) {
         let m = markers[sid];
         if (!m) {
             m = L.marker([s.lat, s.lng], { icon: makeStationIcon(color, n), zIndexOffset: n ? 1000 : 0 });
-            m.bindPopup(() => buildStationPopup(sid), { minWidth: 220, maxWidth: 270 });
+            m.bindPopup(() => buildStationPopup(sid), {
+                className: 'st-leaflet-popup',
+                minWidth: 150,
+                maxWidth: Math.round(Math.min(200, window.innerWidth * 0.62)),
+                autoPanPadding: [12, 12]
+            });
             m._sig = sig;
             m.addTo(map);
             markers[sid] = m;
@@ -2321,17 +2328,19 @@ function buildStationPopup(sid) {
 
     return `
       <div class="st-popup">
-        <div class="pp-op">${escapeHtml(s.op)}${n ? `<span class="pp-badge">Étape ${n}</span>` : ''}</div>
+        <div class="pp-op"><span class="pp-op-name">${escapeHtml(s.op)}</span>${n ? `<span class="pp-badge">Étape ${n}</span>` : ''}</div>
         <div class="pp-name">${escapeHtml(s.nom)}</div>
-        <div class="pp-dist">${distHtml}<span class="pp-detour">↳ ${s.detour.toFixed(2)} km</span></div>
-        <div class="pp-tech">${s.pwr} kW · ${s.dispo}/${s.total} PDC</div>
-        <div class="pp-links">
-          📍 <a href="${gpsNavUrl}" target="_blank" rel="noopener noreferrer" title="${coordsStr}">GPS ↗</a>
-          &nbsp;·&nbsp; 🔍 <a href="${searchMapsUrl}" target="_blank" rel="noopener noreferrer">Google Maps ↗</a>
+        <div class="pp-dist">${distHtml}<span class="pp-detour">↳ ${s.detour.toFixed(1)} km</span></div>
+        <div class="pp-row">
+          <span class="pp-tech">${s.pwr} kW · ${s.dispo}/${s.total} PDC</span>
+          <span class="pp-links">
+            <a href="${gpsNavUrl}" target="_blank" rel="noopener noreferrer" title="Navigation GPS (${coordsStr})" aria-label="Navigation GPS">📍</a>
+            <a href="${searchMapsUrl}" target="_blank" rel="noopener noreferrer" title="Rechercher sur Google Maps" aria-label="Google Maps">🔍</a>
+          </span>
         </div>
         <div class="pp-actions">
           <button type="button" class="pp-btn ${n ? '' : 'pp-btn-main'}" data-sid="${sidAttr}" onclick="toggleStageEl(this)">${n ? '✕ Retirer' : '⚡ Étape'}</button>
-          <button type="button" class="pp-btn" data-sid="${sidAttr}" onclick="showInListEl(this)">📋 Voir dans la liste</button>
+          <button type="button" class="pp-btn" data-sid="${sidAttr}" onclick="showInListEl(this)">📋 Liste</button>
         </div>
       </div>`;
 }
@@ -2357,7 +2366,7 @@ function scrollToStationCard(sid) {
     if (!card) { log("LISTE", "Station introuvable dans la liste (filtres actifs ?).", true); return; }
     const body = document.getElementById('sheetBody');
     const cr = card.getBoundingClientRect(), br = body.getBoundingClientRect();
-    const target = body.scrollTop + (cr.top - br.top) - Math.max(0, (br.height - cr.height) / 2);
+    const target = body.scrollTop + (cr.top - br.top); // carte calée tout en haut de la zone défilante
     body.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
 
     card.classList.remove('flash');
@@ -2369,9 +2378,9 @@ function scrollToStationCard(sid) {
 function showInList(sid) {
     if (mapReady) map.closePopup();
     if (currentViewMode !== 'STATIONS') toggleViewMode();   // les cartes stations ne sont affichées qu'en mode Stations
-    if (sheetState === 'low') setSheetState('mid');          // le panneau doit être assez haut pour voir la liste
-    // On attend la fin de l'animation du panneau (0,28 s) avant de calculer le défilement
-    setTimeout(() => scrollToStationCard(sid), 330);
+    // La position du panneau (basse, moyenne, haute) n'est jamais modifiée : en position basse,
+    // la station se cale en haut de la zone visible, c'est-à-dire à la place de la 1re carte.
+    setTimeout(() => scrollToStationCard(sid), 60);
 }
 function showInListEl(el) { showInList(el.dataset.sid); }
 
@@ -2412,9 +2421,8 @@ function renderStationsList(kmFilter) {
         let badgeHtml = '';
         if (isStage) {
             const prev = n > 1 ? stageList[n - 2] : null;
-            const since = prev ? ` · +${formatDistKm(s.km - prev.km)}` : '';
             const title = prev ? `Étape ${n} : ${formatDistKm(s.km - prev.km)} après l'étape ${n - 1}` : `Étape ${n}`;
-            badgeHtml = `<div class="stage-badge" title="${escapeHtml(title)}">⚡ Étape ${n}${since}</div>`;
+            badgeHtml = `<div class="stage-badge" title="${escapeHtml(title)}">Étape ${n}</div>`;
         }
 
         let pdcsHtml = s.liveInfo.map(p => `<tr><td>${p.id}</td><td><b>${p.etat}</b></td><td>${p.occup}</td><td>${p.h}</td></tr>`).join('');
@@ -2429,9 +2437,9 @@ function renderStationsList(kmFilter) {
                 <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v9a4 4 0 0 0 4 4h6"/><path d="M13 12l4 4-4 4"/></svg>
                 ${s.detour.toFixed(2)} km
               </div>
+              ${badgeHtml}
             </div>
             <div class='info-block'>
-              ${badgeHtml}
               <div class='op-title op-name' title="${escapeHtml(s.op)}">${escapeHtml(s.op)}</div>
               <div class='st-name' title="${escapeHtml(s.nom)}">${escapeHtml(s.nom)}</div>
               <div class='st-commune'>${escapeHtml(s.commune)}</div>
@@ -2439,7 +2447,6 @@ function renderStationsList(kmFilter) {
             <div class='tech-block' onclick="event.stopPropagation(); document.getElementById('pdc_${i}').classList.toggle('show')">
               <div style='font-weight:bold; font-size:12px;'>${s.pwr}kW</div>
               <div class='${status}' style='font-size:11px; font-weight:bold;'>${s.dispo}/${s.total} PDC</div>
-              <button type="button" class="stage-btn${isStage ? ' on' : ''}" data-sid="${sidAttr}" onclick="event.stopPropagation(); toggleStageEl(this)" title="${isStage ? 'Retirer des étapes' : 'Choisir comme étape'}">${isStage ? '✓ Étape ' + n : '⚡ Étape'}</button>
             </div>
           </div>
           <div id='pdc_${i}' class='pdc-panel'>
