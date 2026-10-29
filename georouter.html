@@ -395,18 +395,26 @@
     /* --- Étiquettes des points sur la carte : bouton supprimer --- */
     .pt-popup { display: flex; flex-direction: column; gap: 8px; min-width: 140px; }
     .pt-popup b { font-family: 'Space Grotesk', sans-serif; font-size: 0.95rem; }
-    .pt-popup-del {
-      border: none; border-radius: 8px; background: #fee2e2; color: #dc2626;
-      font-family: 'Inter', sans-serif; font-weight: 600; font-size: 0.8rem;
-      padding: 9px 10px; cursor: pointer; width: 100%;
+    /* Boutons des étiquettes (points, tracé, stations) : même gabarit, 3 variantes */
+    .pt-popup-add, .pt-popup-btn, .pt-popup-del {
+      display: block; width: 100%; box-sizing: border-box; margin: 0;
+      border: none; border-radius: 8px;
+      font-family: 'Inter', sans-serif; font-weight: 600; font-size: 0.8rem; line-height: 1.2;
+      padding: 9px 10px; cursor: pointer; text-align: center;
+      touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+      transition: background .12s, opacity .12s;
     }
-    .pt-popup-del:active { background: #fecaca; }
-    .pt-popup-btn {
-      border: none; border-radius: 8px; background: #eef2f7; color: #334155;
-      font-family: 'Inter', sans-serif; font-weight: 600; font-size: 0.8rem;
-      padding: 9px 10px; cursor: pointer; width: 100%;
-    }
+    .pt-popup-add { background: var(--accent); color: var(--on-accent); }
+    .pt-popup-add:hover { opacity: .92; }
+    .pt-popup-add:active { opacity: .8; }
+    .pt-popup-btn { background: #eef2f7; color: #334155; }
+    .pt-popup-btn:hover { background: #e4ebf3; }
     .pt-popup-btn:active { background: #dde5ee; }
+    .pt-popup-del { background: #fee2e2; color: #dc2626; }
+    .pt-popup-del:hover { background: #fdd5d5; }
+    .pt-popup-del:active { background: #fecaca; }
+    .pt-popup-add:focus-visible, .pt-popup-btn:focus-visible, .pt-popup-del:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .pt-popup-add:disabled, .pt-popup-btn:disabled, .pt-popup-del:disabled { opacity: .55; cursor: default; pointer-events: none; }
     .pass-marker { width: 16px; height: 16px; box-sizing: border-box; border-radius: 50%; background: #fff; border: 3px solid #e67e22; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
 
     .log-panel {
@@ -539,13 +547,9 @@
     .irve-popup .irve-dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid rgba(0,0,0,.35); flex: none; }
     .leaflet-popup-content:has(.irve-popup) { margin: 8px 10px; }
     .leaflet-popup-content-wrapper:has(.irve-popup) { border-radius: 10px; }
-    .irve-add-btn {
-      display: block; width: 100%; margin-top: 6px; padding: 5px 8px;
-      border: 0; border-radius: 6px; cursor: pointer;
-      background: var(--accent); color: var(--on-accent);
-      font: 600 11.5px Inter, -apple-system, sans-serif;
-    }
-    .irve-add-btn:active { opacity: .85; }
+    .irve-popup .irve-proj { margin-top: 6px; color: #6B6B72; font-size: 11px; }
+    .irve-popup .irve-proj b { color: #1f2937; font-size: 12.5px; }
+    .irve-popup .pt-popup-add { margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -1413,10 +1417,27 @@
     function irveEsc(t) {
       return String(t == null ? '' : t).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
     }
+    // Bouton d'étiquette commun : même style, clic isolé de la carte, désactivé après le 1er clic
+    // (évite d'ajouter deux étapes par double-clic pendant le recalcul)
+    function makePopupBtn(label, variant, onClick) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'pt-popup-' + variant;      // 'add' | 'btn' | 'del'
+      btn.textContent = label;
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (btn.disabled) return;
+        btn.disabled = true;
+        onClick();
+      });
+      return btn;
+    }
+    const LABEL_ADD_STOP = '📍 Ajouter comme étape';
+
     function irveRouteActionLabel() {
-      if (!routePoints.start) return 'Définir comme départ';
-      if (!routePoints.end) return 'Définir comme arrivée';
-      return 'Ajouter comme étape';
+      if (!routePoints.start) return '📍 Définir comme départ';
+      if (!routePoints.end) return '📍 Définir comme arrivée';
+      return LABEL_ADD_STOP;
     }
     // Même logique que le clic sur la carte : départ, puis arrivée, puis étapes
     function irveAddToRoute(st) {
@@ -1424,6 +1445,14 @@
       const label = st.nom || st.op || (st.lat.toFixed(5) + ', ' + st.lon.toFixed(5));
       if (!routePoints.start) setPoint('start', latlng, label);
       else if (!routePoints.end) setPoint('end', latlng, label);
+      else if (routeIsDisplayed()) {
+        // Itinéraire déjà tracé : insertion à sa place le long du trajet, puis nouveau calcul
+        const snap = snapToRoute(latlng);
+        const info = snap ? locateOnRoute(snap) : null;
+        addStopAndRecalc(info ? info.insertAt : routePoints.vias.length, latlng,
+          'Station ajoutée comme étape : ' + label + (info ? ` (≈ ${fmtDistKm(info.distFromPrev)} après ${info.prevName})` : ''));
+        return;
+      }
       else addViaPoint(latlng);
       log('IRVE', 'Station ajoutée à l\'itinéraire : ' + label);
       map.closePopup();
@@ -1440,12 +1469,18 @@
         '<div class="irve-name">' + title + '</div>' +
         (sub ? '<div class="irve-sub">' + sub + '</div>' : '') +
         '<div class="irve-breakdown">' + breakdown + '</div>';
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'irve-add-btn';
-      btn.textContent = '+ ' + irveRouteActionLabel();
-      btn.addEventListener('click', (e) => { e.stopPropagation(); irveAddToRoute(st); });
-      el.appendChild(btn);
+      // Trace affichée : distance depuis l'étape précédente, projetée sur le tracé
+      if (routeIsDisplayed()) {
+        const snap = snapToRoute(L.latLng(st.lat, st.lon));
+        if (snap) {
+          const info = locateOnRoute(snap);
+          const proj = document.createElement('div');
+          proj.className = 'irve-proj';
+          proj.innerHTML = '<b>≈ ' + fmtDistKm(info.distFromPrev) + '</b> depuis ' + info.prevName + ' · projeté sur le tracé';
+          el.appendChild(proj);
+        }
+      }
+      el.appendChild(makePopupBtn(irveRouteActionLabel(), 'add', () => irveAddToRoute(st)));
       return el;
     }
 
@@ -1683,6 +1718,12 @@
 
       const latlng = e.latlng;
       const coordsString = `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`;
+
+      // Itinéraire déjà tracé : clic hors tracé -> étiquette (distance projetée + ajout d'étape avec recalcul)
+      if (routePoints.start && routePoints.end && routeIsDisplayed()) {
+        onMapClickOffRoute(latlng);
+        return;
+      }
 
       if (!routePoints.start) {
         setPoint('start', latlng, coordsString);
@@ -1970,7 +2011,7 @@
       if (routePoints.start) {
         const m = L.marker(routePoints.start, { icon: createPinIcon('D', '#2ecc71'), draggable: true })
           .addTo(map)
-          .bindPopup(`<div class="pt-popup"><b>Départ</b><button class="pt-popup-del" onclick="supprimerDepart()">🗑️ Supprimer ce point</button></div>`);
+          .bindPopup(`<div class="pt-popup"><b>Départ</b><button type="button" class="pt-popup-del" onclick="supprimerDepart()">🗑️ Supprimer ce point</button></div>`);
         m.on('dragend', function(e) {
           const latlng = e.target.getLatLng();
           const coordsStr = `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`;
@@ -1988,8 +2029,8 @@
           const m = L.marker(v, { icon, draggable: true })
             .addTo(map)
             .bindPopup(`<div class="pt-popup"><b>${pass ? 'Point de passage' : `Étape N°${stopNumberOf(i)}`}</b>
-              <button class="pt-popup-btn" onclick="basculerTypeDepuisCarte(${i})">${pass ? '📍 Convertir en étape' : '〰️ Convertir en point de passage'}</button>
-              <button class="pt-popup-del" onclick="supprimerEtapeDepuisCarte(${i})">🗑️ Supprimer ce point</button></div>`);
+              <button type="button" class="pt-popup-btn" onclick="basculerTypeDepuisCarte(${i})">${pass ? '📍 Convertir en étape' : '〰️ Convertir en point de passage'}</button>
+              <button type="button" class="pt-popup-del" onclick="supprimerEtapeDepuisCarte(${i})">🗑️ Supprimer ce point</button></div>`);
           m.on('dragend', function(e) {
             const latlng = e.target.getLatLng();
             routePoints.vias[i] = latlng;
@@ -2006,7 +2047,7 @@
       if (routePoints.end) {
         const m = L.marker(routePoints.end, { icon: createPinIcon('A', '#e74c3c'), draggable: true })
           .addTo(map)
-          .bindPopup(`<div class="pt-popup"><b>Arrivée</b><button class="pt-popup-del" onclick="supprimerArrivee()">🗑️ Supprimer ce point</button></div>`);
+          .bindPopup(`<div class="pt-popup"><b>Arrivée</b><button type="button" class="pt-popup-del" onclick="supprimerArrivee()">🗑️ Supprimer ce point</button></div>`);
         m.on('dragend', function(e) {
           const latlng = e.target.getLatLng();
           const coordsStr = `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`;
@@ -2365,17 +2406,14 @@
       return { latlng: snapped, dist: along };
     }
 
-    function onRouteClick(e) {
-      L.DomEvent.stopPropagation(e);
-      closeAllSuggestions();
-      const snap = snapToRoute(e.latlng);
-      if (!snap) return;
+    function routeIsDisplayed() {
+      return !!routeLayer && map.hasLayer(routeLayer) && decodedRouteCoords.length > 1;
+    }
 
-      const el = document.createElement('div');
-      el.className = 'pt-popup';
-
+    // Situe un point projeté sur le tracé : étape précédente, distance depuis elle, index d'insertion
+    function locateOnRoute(snap) {
       const { list, approx } = currentWaypointsAlongRoute();
-      // Tronçon contenant le clic : dernier départ/étape/point de passage situé avant lui
+      // Tronçon contenant le point : dernier départ/étape/point de passage situé avant lui
       let k = -1;
       list.forEach((w, i) => { if (w.kind !== 'end' && w.pos <= snap.dist) k = i; });
       // Étape précédente = départ ou étape (les points de passage sont ignorés)
@@ -2384,27 +2422,55 @@
       const prevWp = prevIdx >= 0 ? list[prevIdx] : null;
       const prevName = (!prevWp || prevWp.kind === 'start') ? 'le départ' : `l'étape ${stopNumberOf(prevWp.viaIndex)}`;
       const distFromPrev = Math.max(0, snap.dist - (prevWp ? prevWp.pos : 0));
+      const w = k >= 0 ? list[k] : null;
+      const insertAt = (!w || w.kind === 'start') ? 0 : w.viaIndex + 1;
+      return { approx, prevName, distFromPrev, insertAt };
+    }
 
-      el.innerHTML = `<b>${approx ? '≈ ' : ''}${fmtDistKm(distFromPrev)}</b><span style="font-size:.78rem;color:var(--muted)">depuis ${prevName}${approx ? ' · approximatif, recalculez pour une valeur exacte' : ''}</span>`;
+    // Ajoute une étape à l'endroit voulu de l'itinéraire, puis relance le calcul
+    function addStopAndRecalc(insertAt, latlng, logMsg) {
+      map.closePopup();
+      insertViaAt(insertAt, latlng);
+      log('CARTE', logMsg);
+      calculateRoute({ keepView: true });
+    }
+
+    // Étiquette : distance depuis l'étape précédente + bouton d'ajout (recalcul)
+    // popupLatLng : où s'ouvre l'étiquette ; stopLatLng : où l'étape sera posée ; offRoute : clic hors tracé
+    function openAddStopPopup(popupLatLng, snap, stopLatLng, offRoute) {
+      const el = document.createElement('div');
+      el.className = 'pt-popup';
+      const info = locateOnRoute(snap);
+      const approx = info.approx || offRoute;
+
+      let note = `depuis ${info.prevName}`;
+      if (offRoute) note += ' · projeté sur le tracé';
+      else if (info.approx) note += ' · approximatif, recalculez pour une valeur exacte';
+      el.innerHTML = `<b>${approx ? '≈ ' : ''}${fmtDistKm(info.distFromPrev)}</b><span style="font-size:.78rem;color:var(--muted)">${note}</span>`;
 
       if (routePoints.start && routePoints.end) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'pt-popup-btn';
-        btn.textContent = '📍 Ajouter comme étape';
-        btn.addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          const w = k >= 0 ? list[k] : null;
-          const insertAt = (!w || w.kind === 'start') ? 0 : w.viaIndex + 1;
-          map.closePopup();
-          insertViaAt(insertAt, snap.latlng);
-          log('CARTE', `Étape ajoutée depuis le tracé (${fmtDistKm(distFromPrev)} après ${prevName}).`);
-          calculateRoute({ keepView: true });
-        });
-        el.appendChild(btn);
+        el.appendChild(makePopupBtn(LABEL_ADD_STOP, 'add', () =>
+          addStopAndRecalc(info.insertAt, stopLatLng,
+            `Étape ajoutée depuis ${offRoute ? 'la carte (hors tracé)' : 'le tracé'} (≈ ${fmtDistKm(info.distFromPrev)} après ${info.prevName}).`)));
       }
 
-      L.popup({ closeButton: true }).setLatLng(snap.latlng).setContent(el).openOn(map);
+      L.popup({ closeButton: true }).setLatLng(popupLatLng).setContent(el).openOn(map);
+    }
+
+    function onRouteClick(e) {
+      L.DomEvent.stopPropagation(e);
+      closeAllSuggestions();
+      const snap = snapToRoute(e.latlng);
+      if (!snap) return;
+      openAddStopPopup(snap.latlng, snap, snap.latlng, false);
+    }
+
+    // Clic sur la carte, hors du tracé : l'étape est posée à l'endroit cliqué,
+    // la distance est celle du point projeté sur le tracé
+    function onMapClickOffRoute(latlng) {
+      const snap = snapToRoute(latlng);
+      if (!snap) return;
+      openAddStopPopup(latlng, snap, latlng, true);
     }
 
     function insertViaAt(index, latlng) {
