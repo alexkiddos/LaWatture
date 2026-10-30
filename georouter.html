@@ -457,13 +457,18 @@
 
     .route-legs { margin-top: 10px; padding-top: 4px; }
     .route-legs .legs-title { font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
-    .step-item {
-      display: flex; align-items: baseline; gap: 8px;
-      font-size: 0.8rem; padding: 7px 0; border-bottom: 1px solid var(--border); color: var(--text);
-    }
-    .step-item .step-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); flex-shrink: 0; margin-top: 5px; }
-    .step-item .step-text { flex: 1; line-height: 1.4; min-width: 0; overflow-wrap: anywhere; }
-    .step-item .step-dist, .step-item .step-time { font-family: 'Space Grotesk', sans-serif; font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+    /* --- Détail du trajet : présentation reprise du module Trajet de Roadbook VE --- */
+    .trip-node { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line-strong); background: var(--card-bg); border-radius: 12px; padding: 9px 10px; cursor: pointer; }
+    .trip-node.is-next { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+    .tn-ico { width: 24px; text-align: center; font-size: 17px; flex-shrink: 0; }
+    .tn-main { flex: 1; min-width: 0; }
+    .tn-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .trip-node.is-stage .tn-title { color: var(--accent); }
+    .tn-sub { font-size: 12px; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+    .tn-right { text-align: right; flex-shrink: 0; }
+    .tn-km { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; white-space: nowrap; }
+    .tn-time { font-size: 11px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+    .trip-leg { margin-left: 22px; padding: 4px 0 4px 14px; border-left: 2px dashed var(--line-strong); font-size: 11.5px; font-weight: 600; color: var(--muted); }
     #loading { display: none; color: var(--accent); font-weight: bold; font-size: 0.85rem; text-align: center; }
 
     .pin-marker {
@@ -1352,7 +1357,7 @@
         let st = map_.get(id);
         if (!st) {
           st = { nom: row.nom_station || '', op: row.nom_amenageur || 'IRVE',
-                 adresse: (row.adresse_station || '').trim(), lat, lon, pwr: 0, pdcs: new Map() };
+                 adresse: (row.adresse_station || '').trim(), insee: row.code_insee_commune || '', lat, lon, pwr: 0, pdcs: new Map() };
           map_.set(id, st);
         }
         if (pwr > st.pwr) st.pwr = pwr;
@@ -1364,7 +1369,7 @@
         const byPwr = new Map();
         st.pdcs.forEach(kw => { const k = Math.round(kw * 10) / 10; byPwr.set(k, (byPwr.get(k) || 0) + 1); });
         const bk = Array.from(byPwr.entries()).sort((a, b) => b[0] - a[0]);
-        list.push({ nom: st.nom, op: st.op, adresse: st.adresse,
+        list.push({ nom: st.nom, op: st.op, adresse: st.adresse, insee: st.insee,
                     lat: st.lat, lon: st.lon, pwr: st.pwr, n: st.pdcs.size, bk });
       });
       list.sort((a, b) => b.pwr - a.pwr);
@@ -1414,6 +1419,70 @@
       if (kw >= 22)  return '#f39c12';   // accéléré
       return '#8a8a93';                  // normal
     }
+    // Nom de la commune d'une station : base "communes" d'IndexedDB (partagée avec Roadbook VE), avec cache mémoire
+    const irveCommuneCache = new Map();
+    async function irveCommuneName(insee) {
+      if (!insee) return '';
+      if (irveCommuneCache.has(insee)) return irveCommuneCache.get(insee);
+      let nom = '';
+      try {
+        const db = await irveOpenDB();
+        nom = await new Promise((resolve) => {
+          const req = db.transaction(IRVE_COMMUNES_STORE, 'readonly').objectStore(IRVE_COMMUNES_STORE).get(insee);
+          req.onsuccess = () => resolve(req.result || '');
+          req.onerror = () => resolve('');
+        });
+      } catch (err) { /* base communes indisponible : on reste sans nom de commune */ }
+      if (nom) irveCommuneCache.set(insee, nom);
+      return nom;
+    }
+    // Commune au point donné : API officielle geo.api.gouv.fr, mise en cache (~100 m) dans le même
+    // stockage que Roadbook VE (clé « roadbook_places ») pour fonctionner ensuite hors-ligne.
+    const PLACES_KEY = 'roadbook_places';
+    const placeKey = (lat, lon) => lat.toFixed(3) + ',' + lon.toFixed(3);
+    function placeCached(lat, lon) {
+      try { return (JSON.parse(localStorage.getItem(PLACES_KEY) || '{}') || {})[placeKey(lat, lon)] || ''; }
+      catch (e) { return ''; }
+    }
+    async function reverseCommune(lat, lon) {
+      const hit = placeCached(lat, lon);
+      if (hit) return hit;
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 7000);
+        const r = await fetch(`https://geo.api.gouv.fr/communes?lat=${lat}&lon=${lon}&fields=nom&limit=1`, { signal: ctrl.signal });
+        clearTimeout(timer);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const j = await r.json();
+        const nom = (j && j[0] && j[0].nom) || '';
+        if (nom) {
+          let cache = {};
+          try { cache = JSON.parse(localStorage.getItem(PLACES_KEY) || '{}') || {}; } catch (e) {}
+          cache[placeKey(lat, lon)] = nom;
+          const keys = Object.keys(cache);
+          while (keys.length > 60) delete cache[keys.shift()];
+          try { localStorage.setItem(PLACES_KEY, JSON.stringify(cache)); } catch (e) {}
+        }
+        return nom;
+      } catch (err) {
+        log('TRAJET', 'Commune introuvable (hors-ligne ?) : ' + err.message, true);
+        return '';
+      }
+    }
+    // Station associée à un point d'étape : celle sur laquelle l'étape a été posée, sinon la plus proche (≤ 150 m)
+    function irveStationForPoint(latlng) {
+      if (!latlng) return null;
+      if (latlng.irveStation) return latlng.irveStation;
+      if (!irveStations) return null;
+      let best = null, bestD = 150;
+      const dLat = 0.0015, dLon = 0.0025;
+      for (const st of irveStations) {
+        if (Math.abs(st.lat - latlng.lat) > dLat || Math.abs(st.lon - latlng.lng) > dLon) continue;
+        const d = map.distance(latlng, [st.lat, st.lon]);
+        if (d < bestD) { bestD = d; best = st; }
+      }
+      return best;
+    }
     function irveEsc(t) {
       return String(t == null ? '' : t).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
     }
@@ -1442,6 +1511,7 @@
     // Même logique que le clic sur la carte : départ, puis arrivée, puis étapes
     function irveAddToRoute(st) {
       const latlng = L.latLng(st.lat, st.lon);
+      latlng.irveStation = st;   // retrouvé dans le détail du trajet (opérateur, commune)
       const label = st.nom || st.op || (st.lat.toFixed(5) + ', ' + st.lon.toFixed(5));
       if (!routePoints.start) setPoint('start', latlng, label);
       else if (!routePoints.end) setPoint('end', latlng, label);
@@ -2578,21 +2648,77 @@
             if (!(i < kinds.length && kinds[i] === 'pass')) { legs.push(acc); acc = { dist: 0, time: 0 }; }
           });
           if (legs.length > 1) {
-            const nodes = ['Départ', ...legs.slice(0, -1).map((_, i) => `Étape ${i + 1}`), 'Arrivée'];
+            const esc = (t) => String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
             const fmtDist = (m) => m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`;
-            legsDiv.innerHTML = '<div class="legs-title">Détail du trajet</div>';
-            legs.forEach((leg, i) => {
-              const item = document.createElement('div');
-              item.className = 'step-item';
-              item.innerHTML = `
-                <span class="step-dot"></span>
-                <span class="step-text">${nodes[i]} → ${nodes[i + 1]}</span>
-                <span class="step-dist">${fmtDist(leg.dist)}</span>
-                <span class="step-time">${formatDuration(leg.time / 1000)}</span>
-              `;
-              legsDiv.appendChild(item);
+            // Nœuds : Départ, étapes (hors points de passage), Arrivée, avec leur nom saisi et leur position
+            const wps = (lastRouteWaypoints || []).filter(w => w.kind !== 'pass');
+            const named = wps.length === legs.length + 1;
+            const nameOf = (w) => {
+              if (!w) return '';
+              const id = w.kind === 'start' ? 'start-input' : w.kind === 'end' ? 'end-input' : `via-input-${w.viaIndex}`;
+              return ((document.getElementById(id) || {}).value || '').trim();
+            };
+            const nodes = [];
+            let stageN = 0;
+            for (let i = 0; i <= legs.length; i++) {
+              const w = named ? wps[i] : null;
+              const type = i === 0 ? 'start' : (i === legs.length ? 'end' : 'stage');
+              if (type === 'stage') stageN++;
+              const st = type === 'stage' && w ? irveStationForPoint(w.ref) : null;
+              nodes.push({
+                type, w, st, name: nameOf(w),
+                title: type === 'start' ? 'Départ' : type === 'end' ? 'Arrivée'
+                  : (st ? `Étape ${stageN} · ${st.op}` : `Étape ${stageN}`)
+              });
+            }
+            const ico = { start: '📍', stage: '⚡', end: '🏁' };
+            // Distance et durée cumulées depuis le départ à chaque nœud
+            let cumD = 0, cumT = 0;
+            const cum = [{ d: 0, t: 0 }];
+            legs.forEach(l => { cumD += l.dist; cumT += l.time; cum.push({ d: cumD, t: cumT }); });
+
+            // Sous-titre : pour une station, la commune (nom de la station en attendant) ; sinon le nom saisi
+            const sub = (nd, i) => {
+              if (nd.st) {
+                const txt = (nd.st.insee && irveCommuneCache.get(nd.st.insee)) || nd.st.nom || nd.name;
+                return txt ? `<div class="tn-sub" data-sub="${i}">${esc(txt)}</div>` : '';
+              }
+              if (nd.type === 'start' || !(nd.w && nd.w.ref)) return nd.name ? `<div class="tn-sub" data-sub="${i}">${esc(nd.name)}</div>` : '';
+              // Étape hors borne et arrivée : commune seule, comme Roadbook
+              return `<div class="tn-sub" data-sub="${i}">${esc(placeCached(nd.w.ref.lat, nd.w.ref.lng) || 'Recherche de la commune…')}</div>`;
+            };
+            let html = '<div class="legs-title">Détail du trajet</div>';
+            nodes.forEach((nd, i) => {
+              if (i > 0) html += `<div class="trip-leg">↓ ${fmtDist(legs[i - 1].dist)} · ${formatDuration(legs[i - 1].time / 1000)}</div>`;
+              const cls = 'trip-node' + (i === 1 ? ' is-next' : '') + (nd.type === 'stage' ? ' is-stage' : '');
+              const right = i === 0
+                ? '<div class="tn-right"><div class="tn-km">0 km</div><div class="tn-time">départ</div></div>'
+                : `<div class="tn-right"><div class="tn-km">${fmtDist(cum[i].d)}</div><div class="tn-time">${formatDuration(cum[i].t / 1000)}</div></div>`;
+              const click = nd.w && nd.w.ref ? ` onclick="map.setView([${nd.w.ref.lat}, ${nd.w.ref.lng}], 13)"` : '';
+              html += `<div class="${cls}"${click}>
+                <span class="tn-ico">${ico[nd.type]}</span>
+                <div class="tn-main"><div class="tn-title">${esc(nd.title)}</div>${sub(nd, i)}</div>${right}</div>`;
             });
+            legsDiv.innerHTML = html;
             legsDiv.style.display = 'block';
+            // Étape hors borne et arrivée : commune via geo.api.gouv.fr (jeton : ignore un résultat d'un ancien calcul)
+            const tok = legsDiv._tok = (legsDiv._tok || 0) + 1;
+            nodes.forEach((nd, i) => {
+              if (nd.st || nd.type === 'start' || !(nd.w && nd.w.ref)) return;
+              reverseCommune(nd.w.ref.lat, nd.w.ref.lng).then(nom => {
+                if (legsDiv._tok !== tok) return;
+                const el = legsDiv.querySelector(`[data-sub="${i}"]`);
+                if (el) el.textContent = nom || nd.name || 'Commune inconnue';
+              });
+            });
+            // Étape-station : commune (comme Roadbook), résolue depuis la base locale puis affichée à la place du nom provisoire
+            nodes.forEach((nd, i) => {
+              if (!nd.st || !nd.st.insee) return;
+              irveCommuneName(nd.st.insee).then(nom => {
+                const el = nom && legsDiv.querySelector(`[data-sub="${i}"]`);
+                if (el) el.textContent = nom;
+              });
+            });
           }
         }
       }
