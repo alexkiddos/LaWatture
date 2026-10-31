@@ -203,12 +203,6 @@
       .settings-tools-row[hidden] { display: none; }
       .btn-tool-wide { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; height: 38px; background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--btn-text); cursor: pointer; font-family: 'Inter', sans-serif; }
       .btn-tool-wide:hover, .btn-tool-wide:active { filter: brightness(0.96); }
-      .btn-tool-wide:disabled { opacity: 0.45; cursor: default; filter: none; }
-
-      /* --- Carte hors-ligne (réglages) --- */
-      .offmap-info { font-size: 12px; line-height: 1.4; color: var(--muted); margin: 8px 2px 0; }
-      .offmap-info:empty { display: none; }
-      .offmap-actions { display: flex; gap: 8px; margin-top: 8px; }
 
       /* --- État initial (aucune trace chargée) --- */
       .empty-state { text-align: center; padding: 28px 10px 20px; }
@@ -423,19 +417,6 @@
         <div class="segmented" id="stageOnlySegmented">
           <button type="button" class="segmented-btn active" data-stageonly="0" onclick="setStageOnly(0)">Toutes</button>
           <button type="button" class="segmented-btn" data-stageonly="1" onclick="setStageOnly(1)">Étapes seules</button>
-        </div>
-
-        <div class="settings-section-label">Carte hors-ligne</div>
-        <div class="segmented" id="offmapSegmented">
-          <button type="button" class="segmented-btn active" data-offzoom="9" onclick="offmapSetPreset(9)" title="Fond de carte jusqu'au zoom 9">Léger</button>
-          <button type="button" class="segmented-btn" data-offzoom="10" onclick="offmapSetPreset(10)" title="Fond de carte jusqu'au zoom 10">Standard</button>
-          <button type="button" class="segmented-btn" data-offzoom="11" onclick="offmapSetPreset(11)" title="Fond de carte jusqu'au zoom 11">Détaillé</button>
-        </div>
-        <div class="offmap-info" id="offmapInfo">Chargez une trace pour estimer le volume à télécharger.</div>
-        <div class="offmap-info" id="offmapStats"></div>
-        <div class="offmap-actions">
-          <button type="button" class="btn-tool-wide" id="offmapBtnDownload" onclick="offmapToggleDownload()" disabled>Télécharger</button>
-          <button type="button" class="btn-tool-wide" id="offmapBtnClear" onclick="offmapClear()">Vider</button>
         </div>
 
         <div class="settings-advanced-toggle" id="advancedToggleRow" onclick="toggleAdvancedSettings()">
@@ -1032,8 +1013,7 @@ function initMap() {
         map.fitBounds(franceBounds, { padding: [10, 10] });
     });
 
-    L.tileLayer(TILE_URL_TEMPLATE, {
-      subdomains: TILE_SUBDOMAINS,
+    L.tileLayer('https://{s}.tile.openstreetmap.de/tiles/osmde/{z}/{x}/{y}.png', { 
       minZoom: 4,
       maxZoom: 19
     }).addTo(map);
@@ -1440,7 +1420,6 @@ function processTraceContent(content, filename) {
     });
 
     fetchAndFilterStations();
-    offmapRefreshEstimate(); // carte hors-ligne : volume à télécharger pour cette trace
 }
 
 // --- RÉCEPTION DES DONNÉES EN PROVENANCE DU HUB / GEOROUTER (via localStorage) ---
@@ -2591,293 +2570,8 @@ function renderStationsList(kmFilter) {
     document.getElementById('stationsContainer').innerHTML = html || `<div style='padding:20px; text-align:center;'>${emptyMsg}</div>`;
 }
 
-/* ===================== CARTE HORS-LIGNE (tuiles le long de la trace) =====================
-   Les tuiles sont stockées par le Service Worker (sw.js, cache TILE_CACHE_NAME). Ce module calcule
-   la liste des tuiles autour de la trace et les précharge avec une prudence extrême envers le
-   serveur de tuiles (service communautaire gratuit) :
-   - zoom plafonné (OFFMAP_HARD_MAX_ZOOM) et nombre de tuiles plafonné par lancement ET par jour
-   - 2 connexions maximum, pause entre chaque requête, tuiles déjà en cache jamais redemandées
-   - téléchargement dans l'ordre des zooms croissants : un arrêt en cours de route laisse une carte
-     complète mais moins détaillée, jamais un morceau de trajet sans fond de carte
-   - arrêt immédiat sur HTTP 429/403 (+ suspension 24 h) ou après 3 erreurs consécutives
-   Pour être moins prudent plus tard : relever OFFMAP_HARD_MAX_ZOOM puis ajouter un bouton dans
-   #offmapSegmented. Vérifier d'abord les conditions d'usage du serveur de tuiles utilisé. */
-const TILE_CACHE_NAME = 'roadbook-tiles-v1';   // doit rester identique à TILE_CACHE dans sw.js
-const TILE_URL_TEMPLATE = 'https://{s}.tile.openstreetmap.de/tiles/osmde/{z}/{x}/{y}.png';
-const TILE_SUBDOMAINS = 'a';                   // un seul hôte : une seule connexion HTTP/2, pas de multiplication
-const TILE_KEY_PREFIX = 'https://tile.openstreetmap.de/tiles/osmde/'; // clé de cache (identique à sw.js)
-
-const OFFMAP_ZMIN = 5;
-const OFFMAP_BUFFER = 1;                // tuiles ajoutées de chaque côté de la trace
-const OFFMAP_HARD_MAX_ZOOM = 11;        // plafond absolu, quoi que dise l'interface
-const OFFMAP_DEFAULT_ZMAX = 9;
-const OFFMAP_MAX_TILES_PER_RUN = 500;
-const OFFMAP_DAILY_BUDGET = 1000;       // requêtes réseau de préchargement par jour (par appareil)
-const OFFMAP_CONCURRENCY = 2;
-const OFFMAP_PAUSE_MS = 300;            // pause après chaque tuile (+ 0 à 300 ms aléatoires)
-const OFFMAP_MAX_CONSECUTIVE_ERRORS = 3;
-const OFFMAP_BLOCK_MS = 24 * 3600 * 1000;
-const OFFMAP_AVG_TILE_KB = 20;          // pour l'estimation affichée uniquement
-const OFFMAP_PRESET_KEY = 'roadbook_offmap_zmax';
-const OFFMAP_BUDGET_KEY = 'roadbook_offmap_budget';
-const OFFMAP_BLOCK_KEY = 'roadbook_offmap_block_until';
-
-let offmapZMax = OFFMAP_DEFAULT_ZMAX;
-let offmapRunning = false;
-let offmapCancel = false;
-let offmapEstimateToken = 0;
-
-const offmapSleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const offmapFmt = (n) => Number(n).toLocaleString('fr-FR');
-const offmapMb = (tiles) => tiles <= 0 ? '0' : Math.max(0.1, tiles * OFFMAP_AVG_TILE_KB / 1024).toFixed(1).replace('.', ',');
-
-function offmapTileKey(t) { return TILE_KEY_PREFIX + t.z + '/' + t.x + '/' + t.y + '.png'; }
-function offmapTileUrl(t) {
-    return TILE_URL_TEMPLATE.replace('{s}', TILE_SUBDOMAINS[0]).replace('{z}', t.z).replace('{x}', t.x).replace('{y}', t.y);
-}
-
-function offmapLonLatToTile(lat, lon, z) {
-    const n = Math.pow(2, z);
-    const latR = Math.max(-85.0511, Math.min(85.0511, lat)) * Math.PI / 180;
-    return {
-        x: (lon + 180) / 360 * n,
-        y: (1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n
-    };
-}
-
-// Tuiles traversées par la trace (échantillonnée au pas d'une demi-tuile pour ne laisser aucun trou)
-// + OFFMAP_BUFFER tuiles de chaque côté. Résultat : zooms croissants, puis dans l'ordre du trajet.
-function offmapComputeTiles(points, zMin, zMax, buffer) {
-    const out = [];
-    for (let z = zMin; z <= zMax; z++) {
-        const n = Math.pow(2, z);
-        const seen = new Set();
-        const add = (tx, ty) => {
-            for (let dx = -buffer; dx <= buffer; dx++) {
-                for (let dy = -buffer; dy <= buffer; dy++) {
-                    const x = tx + dx, y = ty + dy;
-                    if (x < 0 || y < 0 || x >= n || y >= n) continue;
-                    const k = y * n + x;
-                    if (!seen.has(k)) { seen.add(k); out.push({ z, x, y }); }
-                }
-            }
-        };
-        let prev = null;
-        for (let i = 0; i < points.length; i++) {
-            const cur = offmapLonLatToTile(points[i].lat, points[i].lon, z);
-            if (prev === null) {
-                add(Math.floor(cur.x), Math.floor(cur.y));
-            } else {
-                const steps = Math.max(1, Math.ceil(Math.max(Math.abs(cur.x - prev.x), Math.abs(cur.y - prev.y)) / 0.5));
-                for (let s = 1; s <= steps; s++) {
-                    const t = s / steps;
-                    add(Math.floor(prev.x + (cur.x - prev.x) * t), Math.floor(prev.y + (cur.y - prev.y) * t));
-                }
-            }
-            prev = cur;
-        }
-    }
-    return out;
-}
-
-async function offmapCachedKeys() {
-    if (!('caches' in window)) return new Set();
-    try {
-        const c = await caches.open(TILE_CACHE_NAME);
-        return new Set((await c.keys()).map((r) => r.url));
-    } catch (e) { return new Set(); }
-}
-
-async function offmapPlan() {
-    const tiles = offmapComputeTiles(gpxPoints, OFFMAP_ZMIN, offmapZMax, OFFMAP_BUFFER);
-    const cached = await offmapCachedKeys();
-    const missing = tiles.filter((t) => !cached.has(offmapTileKey(t)));
-    return { total: tiles.length, missing, cachedCount: tiles.length - missing.length, cacheSize: cached.size };
-}
-
-// --- Budget quotidien (compté à chaque requête réseau lancée, succès ou non) ---
-function offmapBudgetRemaining() {
-    const today = new Date().toISOString().slice(0, 10);
-    try {
-        const b = JSON.parse(localStorage.getItem(OFFMAP_BUDGET_KEY) || '{}');
-        return b.day === today ? Math.max(0, OFFMAP_DAILY_BUDGET - (b.n || 0)) : OFFMAP_DAILY_BUDGET;
-    } catch (e) { return OFFMAP_DAILY_BUDGET; }
-}
-function offmapBudgetAdd(k) {
-    const today = new Date().toISOString().slice(0, 10);
-    try {
-        const b = JSON.parse(localStorage.getItem(OFFMAP_BUDGET_KEY) || '{}');
-        const n = (b.day === today ? (b.n || 0) : 0) + k;
-        localStorage.setItem(OFFMAP_BUDGET_KEY, JSON.stringify({ day: today, n }));
-    } catch (e) { /* sans localStorage : le plafond par lancement reste actif */ }
-}
-
-// --- Interface ---
-function offmapSetInfo(text) {
-    const el = document.getElementById('offmapInfo');
-    if (el) el.textContent = text;
-}
-
-function offmapUpdateButtons(canStart) {
-    const dl = document.getElementById('offmapBtnDownload');
-    const clr = document.getElementById('offmapBtnClear');
-    if (dl) {
-        dl.textContent = offmapRunning ? 'Arrêter' : 'Télécharger';
-        dl.disabled = !offmapRunning && !canStart;
-    }
-    if (clr) clr.disabled = offmapRunning;
-}
-
-async function offmapRefreshEstimate() {
-    if (offmapRunning) return;
-    const token = ++offmapEstimateToken;
-    const statsEl = document.getElementById('offmapStats');
-    let canStart = false;
-
-    if (!('caches' in window)) {
-        offmapSetInfo("Cache hors-ligne indisponible (contexte non sécurisé ou navigateur trop ancien).");
-        offmapUpdateButtons(false);
-        return;
-    }
-
-    if (!gpxPoints.length) {
-        offmapSetInfo('Chargez une trace pour estimer le volume à télécharger.');
-        const cached = await offmapCachedKeys();
-        if (token !== offmapEstimateToken) return;
-        if (statsEl) statsEl.textContent = `Cache carte : ${offmapFmt(cached.size)} tuiles (≈ ${offmapMb(cached.size)} Mo)`;
-    } else {
-        const plan = await offmapPlan();
-        if (token !== offmapEstimateToken) return;
-        const zoneTxt = `zoom ${OFFMAP_ZMIN} à ${offmapZMax}`;
-        if (plan.missing.length === 0) {
-            offmapSetInfo(`Tout est déjà en cache (${offmapFmt(plan.total)} tuiles, ${zoneTxt}).`);
-        } else if (plan.missing.length > OFFMAP_MAX_TILES_PER_RUN) {
-            offmapSetInfo(`⚠️ ${offmapFmt(plan.missing.length)} tuiles à télécharger : trop pour un seul lancement (max ${OFFMAP_MAX_TILES_PER_RUN}). Choisissez un niveau plus léger.`);
-        } else {
-            canStart = true;
-            offmapSetInfo(`${offmapFmt(plan.missing.length)} tuiles à télécharger (≈ ${offmapMb(plan.missing.length)} Mo), ${offmapFmt(plan.cachedCount)} déjà en cache · ${zoneTxt}.`);
-        }
-        if (statsEl) statsEl.textContent = `Cache carte : ${offmapFmt(plan.cacheSize)} tuiles (≈ ${offmapMb(plan.cacheSize)} Mo)`;
-    }
-    offmapUpdateButtons(canStart);
-}
-
-function offmapSetPreset(zMax, silent) {
-    if (offmapRunning) return;
-    offmapZMax = Math.min(OFFMAP_HARD_MAX_ZOOM, Math.max(OFFMAP_ZMIN, Number(zMax) || OFFMAP_DEFAULT_ZMAX));
-    updateSegmentedActive('offmapSegmented', 'offzoom', offmapZMax);
-    if (!silent) { try { localStorage.setItem(OFFMAP_PRESET_KEY, String(offmapZMax)); } catch (e) {} }
-    offmapRefreshEstimate();
-}
-
-function offmapInit() {
-    let saved = null;
-    try { saved = localStorage.getItem(OFFMAP_PRESET_KEY); } catch (e) {}
-    offmapSetPreset(saved !== null ? Number(saved) : OFFMAP_DEFAULT_ZMAX, true);
-}
-
-function offmapToggleDownload() {
-    if (offmapRunning) { offmapCancel = true; offmapSetInfo('Arrêt en cours…'); return; }
-    offmapStart();
-}
-
-async function offmapStart() {
-    if (offmapRunning || !gpxPoints.length) return;
-    if (!('caches' in window) || !navigator.serviceWorker) {
-        offmapSetInfo('Cache hors-ligne indisponible sur ce navigateur.'); return;
-    }
-    if (!navigator.serviceWorker.controller) {
-        offmapSetInfo("Le Service Worker n'est pas encore actif : rechargez la page puis réessayez."); return;
-    }
-    if (!navigator.onLine) { offmapSetInfo('Pas de connexion : téléchargement impossible.'); return; }
-
-    let blockUntil = 0;
-    try { blockUntil = Number(localStorage.getItem(OFFMAP_BLOCK_KEY) || 0); } catch (e) {}
-    if (Date.now() < blockUntil) {
-        offmapSetInfo(`Téléchargement suspendu (limite du serveur atteinte) jusqu'au ${new Date(blockUntil).toLocaleString('fr-FR')}.`); return;
-    }
-
-    const plan = await offmapPlan();
-    if (plan.missing.length === 0) { offmapRefreshEstimate(); return; }
-    if (plan.missing.length > OFFMAP_MAX_TILES_PER_RUN) { offmapRefreshEstimate(); return; }
-
-    const budget = offmapBudgetRemaining();
-    if (budget <= 0) { offmapSetInfo(`Budget quotidien épuisé (${OFFMAP_DAILY_BUDGET} tuiles/jour). Réessayez demain.`); return; }
-    const queue = plan.missing.slice(0, budget); // zooms croissants : la troncature retire d'abord le plus détaillé
-
-    const seconds = Math.ceil(queue.length * (OFFMAP_PAUSE_MS * 1.5 + 250) / 1000 / OFFMAP_CONCURRENCY);
-    let msg = `Télécharger ${offmapFmt(queue.length)} tuiles (≈ ${offmapMb(queue.length)} Mo) depuis tile.openstreetmap.de ?`;
-    if (queue.length < plan.missing.length) {
-        msg += `\n\nLimité par le budget quotidien : ${offmapFmt(plan.missing.length - queue.length)} tuiles resteront pour un autre jour.`;
-    }
-    msg += `\n\nRythme volontairement lent (${OFFMAP_CONCURRENCY} connexions, ~${seconds} s). Gardez cette page ouverte.`;
-    if (!confirm(msg)) return;
-
-    offmapRunning = true;
-    offmapCancel = false;
-    offmapUpdateButtons(false);
-    log('CARTE', `Préchargement de ${queue.length} tuiles (zoom ${OFFMAP_ZMIN}-${offmapZMax}).`);
-    if (navigator.storage && navigator.storage.persist) {
-        navigator.storage.persist().then((ok) => log('CARTE', ok ? 'Stockage persistant accordé.' : 'Stockage persistant non accordé (le navigateur pourra purger le cache si besoin).')).catch(() => {});
-    }
-
-    let cache = null;
-    try { cache = await caches.open(TILE_CACHE_NAME); } catch (e) {}
-    let next = 0, done = 0, consecutiveErrors = 0, abortReason = null;
-
-    const worker = async () => {
-        while (!offmapCancel && !abortReason) {
-            const i = next++;
-            if (i >= queue.length) return;
-            const tile = queue[i];
-            offmapBudgetAdd(1);
-            try {
-                const res = await fetch(offmapTileUrl(tile), { mode: 'cors', credentials: 'omit' });
-                if (res.status === 429 || res.status === 403) {
-                    abortReason = `le serveur refuse les requêtes (HTTP ${res.status})`;
-                    try { localStorage.setItem(OFFMAP_BLOCK_KEY, String(Date.now() + OFFMAP_BLOCK_MS)); } catch (e) {}
-                    return;
-                }
-                if (!res.ok) throw new Error('HTTP ' + res.status);
-                await res.arrayBuffer(); // vide le flux
-                if (!cache || !(await cache.match(offmapTileKey(tile), { ignoreVary: true }))) {
-                    abortReason = "tuile non enregistrée (stockage plein, ou serveur sans autorisation CORS)";
-                    return;
-                }
-                done++;
-                consecutiveErrors = 0;
-            } catch (err) {
-                if (++consecutiveErrors >= OFFMAP_MAX_CONSECUTIVE_ERRORS) {
-                    abortReason = `${consecutiveErrors} erreurs consécutives (${err.message})`;
-                    return;
-                }
-            }
-            offmapSetInfo(`Téléchargement : ${offmapFmt(done)} / ${offmapFmt(queue.length)}…`);
-            await offmapSleep(OFFMAP_PAUSE_MS + Math.random() * OFFMAP_PAUSE_MS);
-        }
-    };
-    await Promise.all(Array.from({ length: OFFMAP_CONCURRENCY }, worker));
-
-    offmapRunning = false;
-    const summary = abortReason
-        ? `Arrêté : ${abortReason}. ${offmapFmt(done)} tuiles enregistrées.`
-        : (offmapCancel ? `Interrompu : ${offmapFmt(done)} tuiles enregistrées.` : `Terminé : ${offmapFmt(done)} tuiles enregistrées.`);
-    log('CARTE', summary, !!abortReason);
-    await offmapRefreshEstimate();
-    if (abortReason || offmapCancel) offmapSetInfo(summary + ' ' + (document.getElementById('offmapInfo').textContent || ''));
-}
-
-async function offmapClear() {
-    if (offmapRunning || !('caches' in window)) return;
-    if (!confirm('Supprimer toutes les tuiles de carte enregistrées sur cet appareil ?')) return;
-    try { await caches.delete(TILE_CACHE_NAME); log('CARTE', 'Cache des tuiles vidé.'); }
-    catch (e) { log('CARTE', 'Échec de la suppression : ' + e.message, true); }
-    offmapRefreshEstimate();
-}
-
 // Restaure les réglages bornes de la dernière session (objet JSON unique, même
 // mécanique que GeoRouter) et synchronise l'affichage du panneau réglages en conséquence.
-offmapInit();
 restaurerReglages();
 
 // Initialisation de la carte
