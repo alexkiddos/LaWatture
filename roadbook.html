@@ -334,7 +334,18 @@
       .tn-time { font-size: 11px; color: var(--muted); font-weight: 600; white-space: nowrap; }
       .trip-leg { margin-left: 22px; padding: 4px 0 4px 14px; border-left: 2px dashed var(--line-strong); font-size: 11.5px; font-weight: 600; color: var(--muted); }
       .user-loc-icon { background: transparent !important; border: none !important; }
-      .user-loc-arrow { width: 28px; height: 28px; transition: transform 0.3s ease-out; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.4)); }
+      .user-loc-wrap { position: relative; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }
+      .user-loc-arrow { position: relative; width: 26px; height: 26px; will-change: transform; }
+      .user-loc-disc { position: absolute; inset: 0; border-radius: 50%; background: rgba(27,94,224,0.9); box-shadow: 0 1px 4px rgba(0,0,0,0.35); }
+      .user-loc-disc::after { content: ''; position: absolute; inset: 24%; border-radius: 50%; background: rgba(255,255,255,0.12); }
+      .user-loc-halo { position: absolute; inset: 0; border-radius: 50%; background: rgba(11,114,231,0.35); animation: ulPulse 2s ease-out infinite; }
+      .user-loc-wrap.st-off .user-loc-disc { background: rgba(245,158,11,0.92); }
+      .user-loc-wrap.st-off .user-loc-halo { background: rgba(245,158,11,0.35); }
+      .user-loc-wrap.st-poor .user-loc-disc { background: rgba(120,130,148,0.92); }
+      .user-loc-wrap.st-poor .user-loc-halo { background: rgba(138,148,166,0.35); }
+      @keyframes ulPulse { 0% { transform: scale(0.6); opacity: 0.8; } 100% { transform: scale(1.7); opacity: 0; } }
+      @media (prefers-reduced-motion: reduce) { .user-loc-halo { animation: none; } }
+      .brouter-ctrl-btn.follow-paused { background-color: #F59E0B !important; color: #fff !important; }
     </style>
 </head>
 <body>
@@ -596,6 +607,7 @@ window.addEventListener('resize', () => setSheetState(sheetState));
 landscapeMQ.addEventListener('change', () => setSheetState(sheetState));
 
 let map, gpxLineFuture, gpxLinePast, userMarker, watchId = null, isAutoTrack = false, isSimulating = false, simInterval = null;
+let tileLayerRef = null; // couche de tuiles (préchargement en avant du pointeur)
 let currentArrowRotation = 0; // cumulatif (peut dépasser 0-360) pour que la transition CSS tourne toujours du bon côté
 let navDisplayMode = 'CLOSE';
 let gpxPoints = [], globalData = [], roadbookManeuvers = [], markers = {};
@@ -1013,10 +1025,20 @@ function initMap() {
         map.fitBounds(franceBounds, { padding: [10, 10] });
     });
 
-    L.tileLayer('https://{s}.tile.openstreetmap.de/tiles/osmde/{z}/{x}/{y}.png', { 
+    tileLayerRef = L.tileLayer('https://{s}.tile.openstreetmap.de/tiles/osmde/{z}/{x}/{y}.png', { 
       minZoom: 4,
-      maxZoom: 19
+      maxZoom: 19,
+      keepBuffer: 4
     }).addTo(map);
+    // Tuile en erreur (réseau lent, limitation du serveur) : jusqu'à 3 nouvelles tentatives espacées
+    let lastTileErrLog = 0;
+    tileLayerRef.on('tileerror', e => {
+        const t = e.tile, src = t.src;
+        if (Date.now() - lastTileErrLog > 10000) { lastTileErrLog = Date.now(); log("TILES", "Tuile non chargée, nouvelle tentative."); }
+        t._retries = (t._retries || 0) + 1;
+        if (t._retries > 3) return;
+        setTimeout(() => { if (t.parentNode) t.src = src; }, 700 * t._retries);
+    });
 
     L.control.scale({ imperial: false, metric: true }).addTo(map);
 
@@ -1063,6 +1085,13 @@ function initMap() {
     });
     map.addControl(new CustomActionControls());
 
+    // Suivi : un geste de l'utilisateur met le recentrage auto en pause (bouton orange = appuyer pour recentrer)
+    map.on('dragstart', () => pauseFollow(true));
+    map.on('dragend', () => { if (followPaused) pauseFollow(false); });
+    map.on('zoomstart', () => {
+        if (isNavTracking() && Date.now() > navZoomGuardUntil) { userZoomOverride = true; pauseFollow(false); }
+    });
+
     log("INIT", "Carte Leaflet initialisée.");
     loadOrFetchCommunesDB();
 }
@@ -1071,6 +1100,7 @@ function initMap() {
 function handleButton1Click() {
     if (isAutoTrack || isSimulating) {
         navDisplayMode = 'OVERVIEW';
+        resumeFollow();
         log("MAP", "Mode Vue d'Ensemble activé.");
         applyNavBounds(lastValidLat, lastValidLng);
     } else {
@@ -1082,8 +1112,9 @@ function handleButton2Click() {
     if (isAutoTrack || isSimulating) {
         navDisplayMode = 'CLOSE';
         log("MAP", "Retour au Mode Suivi Rapproché.");
+        resumeFollow(); userZoomOverride = false;
         if (lastValidLat !== null && lastValidLng !== null) {
-            map.setView([lastValidLat, lastValidLng], NAV_CLOSE_ZOOM);
+            navSetView([lastValidLat, lastValidLng], navTargetZoom());
         } else {
             getSinglePosition();
         }
@@ -1114,6 +1145,7 @@ function fitTraceBounds() {
 }
 
 function applyNavBounds(lat, lng) {
+    navZoomGuardUntil = Date.now() + 1000;
     if (gpxLineFuture && gpxLineFuture.getLatLngs().length > 0) {
         map.fitBounds(gpxLineFuture.getBounds(), { 
             ...FIT_BOUNDS_OPTIONS,
@@ -1132,8 +1164,8 @@ function getSinglePosition() {
     log("GPS", "Acquisition d'une position GPS ponctuelle...");
     navigator.geolocation.getCurrentPosition(
         pos => {
-            updatePosition(pos.coords.latitude, pos.coords.longitude, pos.coords.heading, pos.coords.speed);
-            map.setView([pos.coords.latitude, pos.coords.longitude], NAV_CLOSE_ZOOM);
+            updatePosition(pos.coords.latitude, pos.coords.longitude, pos.coords.heading, pos.coords.speed, pos.coords.accuracy);
+            navSetView([pos.coords.latitude, pos.coords.longitude], NAV_CLOSE_ZOOM);
             log("GPS", "Position ponctuelle acquise avec succès.");
         },
         err => log("GPS", "Erreur acquisition : " + err.message, true),
@@ -1147,16 +1179,17 @@ function toggleAutoTrack() {
     const btn = document.getElementById('autoTrackBtn');
     if (isAutoTrack) {
         btn.classList.add('active-track');
+        resetNavEngine();
         navDisplayMode = 'CLOSE';
         
         if (lastValidLat !== null && lastValidLng !== null) {
-            map.setView([lastValidLat, lastValidLng], NAV_CLOSE_ZOOM);
+            navSetView([lastValidLat, lastValidLng], NAV_CLOSE_ZOOM);
         }
 
         requestWakeLock();
         if(navigator.geolocation) {
             watchId = navigator.geolocation.watchPosition(
-                pos => updatePosition(pos.coords.latitude, pos.coords.longitude, pos.coords.heading, pos.coords.speed),
+                pos => updatePosition(pos.coords.latitude, pos.coords.longitude, pos.coords.heading, pos.coords.speed, pos.coords.accuracy),
                 err => log("GPS", "Erreur : " + err.message, true),
                 { enableHighAccuracy: true, maximumAge: 0 }
             );
@@ -1167,6 +1200,7 @@ function toggleAutoTrack() {
         releaseWakeLock();
         if(watchId) navigator.geolocation.clearWatch(watchId);
         lastValidLat = null; lastValidLng = null;
+        resumeFollow();
         log("GPS", "Suivi live désactivé.");
     }
 }
@@ -1200,7 +1234,8 @@ function toggleSimulation() {
         navDisplayMode = 'CLOSE';
 
         if (gpxPoints.length > 0) {
-            map.setView([gpxPoints[0].lat, gpxPoints[0].lon], NAV_CLOSE_ZOOM);
+            resetNavEngine();
+            navSetView([gpxPoints[0].lat, gpxPoints[0].lon], NAV_CLOSE_ZOOM);
         }
 
         requestWakeLock();
@@ -1209,7 +1244,7 @@ function toggleSimulation() {
         const TICK_MS = 300;
         const kmPerTickBase = (SIM_SPEED_KMH / 3600) * (TICK_MS / 1000);
         const traceEndKm = gpxPoints[gpxPoints.length - 1].km;
-        let simKm = 0, cursor = 0;
+        let simKm = 0;
         simInterval = setInterval(() => {
             simKm += kmPerTickBase * simSpeedMultiplier; // relit le multiplicateur à chaque tick : effet immédiat sans relancer le timer
             if (simKm >= traceEndKm) {
@@ -1217,124 +1252,295 @@ function toggleSimulation() {
                 log("SIM", "Simulation terminée (fin du tracé).");
                 return;
             }
-            while (cursor < gpxPoints.length - 1 && gpxPoints[cursor].km < simKm) cursor++;
-            let pt = gpxPoints[cursor];
-            // Cap dérivé automatiquement de la géométrie du tracé par updatePosition (on est toujours dessus en simulation)
-            updatePosition(pt.lat, pt.lon, null, null);
+            // Position interpolée sur le tracé + bruit GPS réaliste (±4 m, précision annoncée 6 m) pour tester le lissage
+            const pt = pointAtKm(simKm);
+            const jit = () => (Math.random() - 0.5) * 8 / 111195;
+            updatePosition(pt.lat + jit(), pt.lon + jit() / Math.cos(pt.lat * Math.PI / 180), null, SIM_SPEED_KMH * simSpeedMultiplier / 3.6, 6);
         }, TICK_MS);
     } else {
         btn.classList.remove('active-track');
         if (speedBtn) speedBtn.style.display = 'none';
         releaseWakeLock();
         if(simInterval) clearInterval(simInterval);
+        resumeFollow();
         log("SIM", "Simulation arrêtée.");
     }
 }
 
-function updateTraceDisplay(currentKm) {
-    if(gpxPoints.length === 0) return;
+/* ======================= Moteur de suivi =======================
+   Chaque fix GPS fixe une cible ; une boucle requestAnimationFrame interpole le pointeur,
+   lisse le cap et recentre la carte (sans animation Leaflet) pour que tout bouge ensemble. */
+const ON_TRACK_KM = 0.05;            // 50 m : référence pour "sur le tracé" (hystérésis 35 m / 60 m)
+const MIN_SPEED_FOR_GPS_HEADING = 1; // m/s : sous ce seuil, le cap GPS brut n'est pas fiable
+const MAX_ACCURACY_M = 50;           // fixes plus imprécis ignorés pendant le suivi
+const FOLLOW_RESUME_MS = 8000;       // reprise auto du recentrage après un geste sur la carte
+const ZOOM_MIN_INTERVAL_MS = 15000;  // délai mini entre deux changements de zoom automatiques
 
-    let pastPoints = [];
-    let futurePoints = [];
+let lastIdx = 0, lastDrawnKm = -1, navSnapped = false, navStateCur = '';
+let followPaused = false, followResumeTimer = null, userZoomOverride = false, navZoomGuardUntil = 0, lastZoomChangeMs = 0;
+let navFrom = null, navTo = null, navShown = null, navT0 = 0, navDur = 1000, navRaf = null, navLastT = 0;
+let headingTarget = 0, headingTau = 150, headingInit = false, navSpeedKmh = null, lastFixMs = 0, navFirstFix = true;
+let wrapEl = null, arrowEl = null, accCircle = null, gpxLatLngs = [], gpxLatLngsSrc = null;
 
-    for(let pt of gpxPoints) {
-        if(pt.km <= currentKm) {
-            pastPoints.push([pt.lat, pt.lon]);
-        } else {
-            if(futurePoints.length === 0 && pastPoints.length > 0) {
-                futurePoints.push(pastPoints[pastPoints.length - 1]);
-            }
-            futurePoints.push([pt.lat, pt.lon]);
-        }
-    }
+function isNavTracking() { return isAutoTrack || isSimulating; }
 
-    if(gpxLinePast) gpxLinePast.setLatLngs(pastPoints);
-    if(gpxLineFuture) gpxLineFuture.setLatLngs(futurePoints);
+function resetNavEngine() {
+    lastIdx = 0; lastDrawnKm = -1; navSnapped = false; navSpeedKmh = null; lastFixMs = 0;
+    navFirstFix = true; userZoomOverride = false; lastZoomChangeMs = 0;
+    resumeFollow();
 }
 
-// Delta angulaire signé le plus court entre deux caps (évite qu'une transition CSS
-// tourne "dans le mauvais sens" en passant par 0°/360°, ex. 350° -> 10°).
+// Zoom programmatique : la garde évite qu'il soit pris pour un geste de l'utilisateur
+function navSetView(ll, zoom) { navZoomGuardUntil = Date.now() + 1000; map.setView(ll, zoom); }
+
+// Zoom selon la vitesse lissée, avec hystérésis (±5 km/h) : NAV_CLOSE_ZOOM sur autoroute, jusqu'à +3 en ville
+function zoomForSpeed(kmh, cur) {
+    const T = [30, 60, 90];
+    let band = Math.max(0, Math.min(3, NAV_CLOSE_ZOOM + 3 - cur));
+    while (band < 3 && kmh > T[band] + 5) band++;
+    while (band > 0 && kmh < T[band - 1] - 5) band--;
+    return NAV_CLOSE_ZOOM + 3 - band;
+}
+function navTargetZoom() { return navSpeedKmh === null ? NAV_CLOSE_ZOOM : zoomForSpeed(navSpeedKmh, map.getZoom()); }
+function maybeAdaptZoom() {
+    if (userZoomOverride || navSpeedKmh === null || Date.now() - lastZoomChangeMs < ZOOM_MIN_INTERVAL_MS) return;
+    const z = zoomForSpeed(navSpeedKmh, map.getZoom());
+    if (z !== map.getZoom()) {
+        lastZoomChangeMs = Date.now(); navZoomGuardUntil = lastZoomChangeMs + 1000;
+        map.setZoom(z, { animate: false });
+    }
+}
+
+// Pause / reprise du recentrage automatique (geste utilisateur) ; le bouton de géoloc devient orange
+function pauseFollow(hold) {
+    if (!isNavTracking()) return;
+    followPaused = true;
+    const b = document.getElementById('geolocBtn'); if (b) b.classList.add('follow-paused');
+    clearTimeout(followResumeTimer);
+    followResumeTimer = hold ? null : setTimeout(resumeFollow, FOLLOW_RESUME_MS);
+}
+function resumeFollow() {
+    clearTimeout(followResumeTimer); followResumeTimer = null; followPaused = false;
+    const b = document.getElementById('geolocBtn'); if (b) b.classList.remove('follow-paused');
+}
+
+// Centre de la carte décalé devant le pointeur (dans le sens du cap) : on voit plus de route à venir
+function followCenter(ll) {
+    const z = map.getZoom(), size = map.getSize();
+    const off = (navSpeedKmh !== null && navSpeedKmh < 8) ? 0 : Math.min(size.x, size.y) * 0.2;
+    const h = currentArrowRotation * Math.PI / 180;
+    return map.unproject(map.project(ll, z).add([Math.sin(h) * off, -Math.cos(h) * off]), z);
+}
+
+/* --- Géométrie du tracé --- */
+function getGpxLatLngs() {
+    if (gpxLatLngsSrc !== gpxPoints || gpxLatLngs.length !== gpxPoints.length) {
+        gpxLatLngs = gpxPoints.map(p => [p.lat, p.lon]); gpxLatLngsSrc = gpxPoints;
+    }
+    return gpxLatLngs;
+}
+function firstIdxAfterKm(km) { // 1er index dont le km est > km (km croissant -> dichotomie)
+    let lo = 0, hi = gpxPoints.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (gpxPoints[mid].km <= km) lo = mid + 1; else hi = mid; }
+    return lo;
+}
+function pointAtKm(km) {
+    const n = gpxPoints.length; if (n < 2) return null;
+    km = Math.max(0, Math.min(km, gpxPoints[n - 1].km));
+    const j = Math.max(1, Math.min(firstIdxAfterKm(km), n - 1));
+    const a = gpxPoints[j - 1], b = gpxPoints[j], span = b.km - a.km, t = span > 0 ? (km - a.km) / span : 0;
+    return { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t };
+}
+function bearingDeg(la1, lo1, la2, lo2) { // azimut initial (0-360°), correct à toute latitude
+    const r = Math.PI / 180, p1 = la1 * r, p2 = la2 * r, dl = (lo2 - lo1) * r;
+    return (Math.atan2(Math.sin(dl) * Math.cos(p2), Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl)) / r + 360) % 360;
+}
+// Cap du tracé entre (km − 30 m) et (km + 80 m) : fenêtre en distance, avec un léger regard vers l'avant
+function getRouteHeadingAtKm(km) {
+    const a = pointAtKm(km - 0.03), b = pointAtKm(km + 0.08);
+    if (!a || !b || distanceHaversine(a.lat, a.lon, b.lat, b.lon) < 0.005) return null;
+    return bearingDeg(a.lat, a.lon, b.lat, b.lon);
+}
+// Projection de la position sur le segment du tracé le plus proche. Recherche locale autour du dernier
+// index connu (O(1) en pratique), recherche complète seulement si on s'en éloigne de plus de 200 m.
+function locateOnTrace(lat, lng) {
+    const n = gpxPoints.length; if (n < 2) return null;
+    const kLat = 111.195, kLon = kLat * Math.cos(lat * Math.PI / 180), last = n - 2;
+    const scan = (from, to) => {
+        let best = null;
+        for (let i = from; i <= to; i++) {
+            const a = gpxPoints[i], b = gpxPoints[i + 1];
+            const ax = (a.lon - lng) * kLon, ay = (a.lat - lat) * kLat;
+            const dx = (b.lon - a.lon) * kLon, dy = (b.lat - a.lat) * kLat, l2 = dx * dx + dy * dy;
+            const t = l2 > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2)) : 0;
+            const d = Math.hypot(ax + t * dx, ay + t * dy);
+            if (!best || d < best.dist) best = { idx: i, t, dist: d };
+        }
+        return best;
+    };
+    lastIdx = Math.max(0, Math.min(lastIdx, last));
+    let best = scan(Math.max(0, lastIdx - 50), Math.min(last, lastIdx + 300));
+    if (!best || best.dist > 0.2) best = scan(0, last);
+    lastIdx = best.idx;
+    const a = gpxPoints[best.idx], b = gpxPoints[best.idx + 1];
+    best.km = a.km + (b.km - a.km) * best.t;
+    best.lat = a.lat + (b.lat - a.lat) * best.t;
+    best.lon = a.lon + (b.lon - a.lon) * best.t;
+    return best;
+}
+
+/* --- Préchargement des tuiles devant le pointeur ---
+   Leaflet ne charge que ce qui est visible : en avançant vite, le bord d'attaque de la carte reste gris le
+   temps que les tuiles arrivent. On demande donc en avance (au zoom courant, 3×3 tuiles autour de points
+   échantillonnés sur le tracé à venir) : le navigateur les met en cache et Leaflet les affiche instantanément. */
+const prefetchSeen = new Set(), prefetchImgs = [];
+let prefetchInflight = 0;
+function prefetchAhead(km, lat) {
+    if (!tileLayerRef || gpxPoints.length < 2 || prefetchInflight >= 4) return;
+    const z = map.getZoom(), n = Math.pow(2, z), size = map.getSize();
+    const mPerPx = 156543.03392 * Math.cos(lat * Math.PI / 180) / n;
+    const aheadKm = Math.max(0.5, Math.min(1.5 * Math.max(size.x, size.y) * mPerPx / 1000, 6));
+    const step = Math.max(0.05, 256 * mPerPx / 2000);
+    if (prefetchSeen.size > 3000) prefetchSeen.clear();
+    let budget = 10;
+    for (let d = 0; d <= aheadKm && budget > 0; d += step) {
+        const p = pointAtKm(km + d); if (!p) break;
+        const px = Math.floor((p.lon + 180) / 360 * n);
+        const sin = Math.sin(p.lat * Math.PI / 180);
+        const py = Math.floor((0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * n);
+        for (let dx = -1; dx <= 1 && budget > 0; dx++) for (let dy = -1; dy <= 1 && budget > 0; dy++) {
+            const x = ((px + dx) % n + n) % n, y = py + dy;
+            if (y < 0 || y >= n) continue;
+            const key = z + '/' + x + '/' + y;
+            if (prefetchSeen.has(key)) continue;
+            prefetchSeen.add(key); budget--; prefetchInflight++;
+            const img = new Image(), done = () => { prefetchInflight--; };
+            img.onload = done; img.onerror = done;
+            img.src = tileLayerRef.getTileUrl({ x, y, z });
+            prefetchImgs.push(img); if (prefetchImgs.length > 60) prefetchImgs.shift(); // garde les requêtes en cours référencées
+        }
+    }
+}
+
+// cut = [lat, lon] : point exact de coupure passé/futur (position collée au tracé)
+function updateTraceDisplay(currentKm, cut) {
+    if (gpxPoints.length === 0) return;
+    const ll = getGpxLatLngs(), i = firstIdxAfterKm(currentKm);
+    let past = ll.slice(0, i), future = (i > 0 && i < ll.length) ? [ll[i - 1]].concat(ll.slice(i)) : ll.slice(i);
+    if (cut) { past = past.concat([cut]); future = [cut].concat(i < ll.length ? ll.slice(i) : []); }
+    if (gpxLinePast) gpxLinePast.setLatLngs(past);
+    if (gpxLineFuture) gpxLineFuture.setLatLngs(future);
+}
+
+/* --- Pointeur --- */
+// Delta angulaire signé le plus court entre deux caps (évite de tourner "dans le mauvais sens" via 0°/360°)
 function shortestAngleDelta(fromDeg, toDeg) {
     let diff = (toDeg - fromDeg) % 360;
     if (diff > 180) diff -= 360;
     if (diff < -180) diff += 360;
     return diff;
 }
-
-// Applique une nouvelle orientation à la flèche en tournant toujours du côté le plus
-// court (rotation cumulative, peut dépasser 0-360) ; la transition CSS fait le reste.
-function setArrowRotation(headingDeg) {
-    const target = ((headingDeg % 360) + 360) % 360;
-    const current = ((currentArrowRotation % 360) + 360) % 360;
-    currentArrowRotation += shortestAngleDelta(current, target);
-    const arrow = userMarker && userMarker.getElement() ? userMarker.getElement().querySelector('.user-loc-arrow') : null;
-    if (arrow) arrow.style.transform = `rotate(${currentArrowRotation}deg)`;
+function ensureUserMarker(lat, lng) {
+    if (userMarker) return;
+    const html = `<div class="user-loc-wrap"><div class="user-loc-halo"></div><div class="user-loc-disc"></div><svg class="user-loc-arrow" viewBox="0 0.7 24 24"><path fill="#fff" d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg></div>`;
+    userMarker = L.marker([lat, lng], { icon: L.divIcon({ html, iconSize: [40, 40], iconAnchor: [20, 20], className: 'user-loc-icon' }), zIndexOffset: 2000, interactive: false, keyboard: false }).addTo(map);
+    const el = userMarker.getElement();
+    wrapEl = el.querySelector('.user-loc-wrap'); arrowEl = el.querySelector('.user-loc-arrow');
+    arrowEl.style.transform = `rotate(${currentArrowRotation}deg)`;
+    navShown = { lat, lng }; navStateCur = '';
+}
+// 'track' / 'free' : bleu ; 'off' (hors tracé) : orange ; 'poor' (GPS imprécis) : gris
+function setNavState(state) {
+    if (!wrapEl || state === navStateCur) return;
+    navStateCur = state;
+    wrapEl.classList.toggle('st-off', state === 'off');
+    wrapEl.classList.toggle('st-poor', state === 'poor');
+}
+function updateAccuracyCircle(acc) {
+    if (acc > 0) {
+        if (!accCircle) accCircle = L.circle([navShown.lat, navShown.lng], { radius: acc, color: '#0B72E7', weight: 1, opacity: 0.35, fillColor: '#0B72E7', fillOpacity: 0.08, interactive: false });
+        accCircle.setRadius(acc);
+        if (!map.hasLayer(accCircle)) accCircle.addTo(map);
+    } else if (accCircle && map.hasLayer(accCircle)) map.removeLayer(accCircle);
 }
 
-// Cap local déduit de la géométrie du tracé autour de l'index donné (moyenne sur une
-// petite fenêtre avant/après) : bien plus stable qu'un cap GPS instantané, puisqu'il
-// repose sur une géométrie fixe plutôt que sur des positions bruitées.
-function getRouteHeadingAt(index) {
-    if (gpxPoints.length < 2) return null;
-    const aheadIdx = Math.min(index + 5, gpxPoints.length - 1);
-    const behindIdx = Math.max(index - 5, 0);
-    if (aheadIdx === behindIdx) return null;
-    const p1 = gpxPoints[behindIdx], p2 = gpxPoints[aheadIdx];
-    return Math.atan2(p2.lon - p1.lon, p2.lat - p1.lat) * (180 / Math.PI);
+function pushFix(lat, lng) {
+    const now = performance.now();
+    navDur = Math.min(Math.max(now - navT0, 250), 2000); // durée de l'interpolation ≈ intervalle réel entre deux fixes
+    navT0 = now;
+    navFrom = navShown; navTo = { lat, lng };
+    if (distanceHaversine(navFrom.lat, navFrom.lng, lat, lng) > 0.3) navFrom = navTo; // grand saut : pas d'interpolation
+    if (!navRaf) { navLastT = 0; navRaf = requestAnimationFrame(navFrame); }
+}
+function navFrame(now) {
+    const dt = navLastT ? Math.min(now - navLastT, 100) : 16; navLastT = now;
+    const k = Math.min((now - navT0) / navDur, 1);
+    navShown = { lat: navFrom.lat + (navTo.lat - navFrom.lat) * k, lng: navFrom.lng + (navTo.lng - navFrom.lng) * k };
+    userMarker.setLatLng(navShown);
+    if (accCircle) accCircle.setLatLng(navShown);
+    if (isNavTracking() && !followPaused && navDisplayMode === 'CLOSE' && !map._animatingZoom) {
+        map.panTo(followCenter(navShown), { animate: false });
+    }
+    // Cap : lissage exponentiel indépendant du framerate
+    const dh = shortestAngleDelta(currentArrowRotation, headingTarget);
+    currentArrowRotation = (((currentArrowRotation + dh * (1 - Math.exp(-dt / headingTau))) % 360) + 360) % 360;
+    if (arrowEl) arrowEl.style.transform = `rotate(${currentArrowRotation}deg)`;
+    navRaf = (k < 1 || Math.abs(dh) > 0.3) ? requestAnimationFrame(navFrame) : null;
 }
 
-const ON_TRACK_KM = 0.05;           // 50 m : distance sous laquelle on considère être "sur" le tracé
-const MIN_SPEED_FOR_GPS_HEADING = 1; // m/s : sous ce seuil, le cap GPS brut n'est pas fiable -> on ne le suit pas
+function updatePosition(lat, lng, heading, speedMps, accuracy) {
+    const tracking = isNavTracking(), nowMs = performance.now();
 
-function updatePosition(lat, lng, heading, speedMps) {
-    if (!isSimulating && lastValidLat !== null && lastValidLng !== null) {
-        let distanceMetres = distanceHaversine(lastValidLat, lastValidLng, lat, lng) * 1000;
-        if (distanceMetres < 10) return;
-    }
-    
-    lastValidLat = lat;
-    lastValidLng = lng;
-
-    if (isAutoTrack || isSimulating) {
-        if (navDisplayMode === 'OVERVIEW') {
-            applyNavBounds(lat, lng);
-        } else {
-            map.panTo([lat, lng], {animate: true, duration: 0.8});
-        }
-    } else {
-        map.panTo([lat, lng], {animate: true, duration: 0.8});
-    }
-
-    // Point le plus proche sur le tracé : calculé une seule fois, réutilisé pour le cap et le km affiché.
-    let bestIdx = -1, minDist = Infinity, bestKm = 0;
-    if (gpxPoints.length > 0) {
-        for (let i = 0; i < gpxPoints.length; i++) {
-            const d = distanceHaversine(lat, lng, gpxPoints[i].lat, gpxPoints[i].lon);
-            if (d < minDist) { minDist = d; bestKm = gpxPoints[i].km; bestIdx = i; }
+    if (tracking && !isSimulating) {
+        if (accuracy != null && accuracy > MAX_ACCURACY_M) { setNavState('poor'); return; } // fix trop imprécis
+        if (lastValidLat !== null) { // anti-gigue à l'arrêt
+            const moved = distanceHaversine(lastValidLat, lastValidLng, lat, lng) * 1000;
+            const slow = speedMps != null && speedMps < 0.5;
+            if (moved < (slow ? Math.max(4, (accuracy || 0) * 0.5) : 2)) return;
         }
     }
 
-    // Cap : géométrie du tracé si on est dessus (stable), sinon cap GPS brut si la vitesse
-    // le rend fiable ; sinon on ne touche pas à la flèche (on garde le dernier cap connu).
-    let newHeading = (bestIdx !== -1 && minDist <= ON_TRACK_KM) ? getRouteHeadingAt(bestIdx) : null;
-    if (newHeading === null && heading !== null && heading !== undefined && !isNaN(heading)) {
-        if (speedMps === null || speedMps === undefined || speedMps >= MIN_SPEED_FOR_GPS_HEADING) {
-            newHeading = heading;
+    // Vitesse lissée (GPS, sinon déduite des positions) : sert au zoom adaptatif et au décalage de caméra
+    let kmh = (speedMps != null && !isNaN(speedMps)) ? speedMps * 3.6 : null;
+    if (kmh === null && lastValidLat !== null && lastFixMs && nowMs > lastFixMs) {
+        kmh = distanceHaversine(lastValidLat, lastValidLng, lat, lng) / ((nowMs - lastFixMs) / 3600000);
+    }
+    lastFixMs = nowMs;
+    if (kmh !== null && isFinite(kmh)) navSpeedKmh = navSpeedKmh === null ? kmh : navSpeedKmh * 0.7 + kmh * 0.3;
+    lastValidLat = lat; lastValidLng = lng;
+
+    // Position sur le tracé (hystérésis : collé dès 35 m, décollé au-delà de 60 m)
+    const loc = locateOnTrace(lat, lng);
+    navSnapped = !!loc && loc.dist <= (navSnapped ? ON_TRACK_KM * 1.2 : ON_TRACK_KM * 0.7);
+    const dLat = navSnapped ? loc.lat : lat, dLng = navSnapped ? loc.lon : lng;
+
+    // Cap : géométrie du tracé si on est dessus ; sinon cap GPS si la vitesse le rend fiable ; sinon on garde le dernier
+    let newHeading = navSnapped ? getRouteHeadingAtKm(loc.km) : null;
+    if (newHeading === null && heading != null && !isNaN(heading) && (speedMps == null || speedMps >= MIN_SPEED_FOR_GPS_HEADING)) newHeading = heading;
+    if (newHeading !== null) {
+        headingTarget = newHeading; headingTau = navSnapped ? 150 : 350; // cap GPS plus bruité -> lissage plus fort
+        if (!headingInit) { currentArrowRotation = newHeading; headingInit = true; }
+    }
+
+    ensureUserMarker(dLat, dLng);
+    setNavState(!loc ? 'free' : navSnapped ? 'track' : 'off');
+    updateAccuracyCircle(accuracy);
+    pushFix(dLat, dLng);
+
+    if (tracking) {
+        if (navFirstFix) { navFirstFix = false; navSetView([dLat, dLng], navTargetZoom()); }
+        if (navDisplayMode === 'OVERVIEW') { if (!followPaused) applyNavBounds(lat, lng); }
+        else maybeAdaptZoom();
+    }
+
+    if (loc) {
+        document.getElementById('kmInput').value = Math.round(loc.km);
+        if (lastDrawnKm < 0 || Math.abs(loc.km - lastDrawnKm) >= 0.03) { // tracé + tuiles : seulement tous les ~30 m
+            lastDrawnKm = loc.km;
+            updateTraceDisplay(loc.km, navSnapped ? [loc.lat, loc.lon] : null);
+            renderList(loc.km);
+            if (tracking) prefetchAhead(loc.km, loc.lat);
         }
-    }
-
-    if (userMarker) {
-        userMarker.setLatLng([lat, lng]);
-    } else {
-        const svg = `<div style="width:32px;height:32px;"><svg class="user-loc-arrow" viewBox="0 0 24 24"><path fill="#0B72E7" stroke="#ffffff" stroke-width="2" d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg></div>`;
-        userMarker = L.marker([lat, lng], {icon: L.divIcon({html: svg, iconSize:[32,32], iconAnchor:[16,16], className: 'user-loc-icon'})}).addTo(map);
-    }
-    if (newHeading !== null) setArrowRotation(newHeading);
-
-    if (bestIdx !== -1) {
-        document.getElementById('kmInput').value = Math.round(bestKm);
-        updateTraceDisplay(bestKm);
-        renderList(bestKm); // position précise (non arrondie) pour les tuiles, indépendamment de l'affichage du champ km
     }
 }
 
