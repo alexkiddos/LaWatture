@@ -334,8 +334,8 @@
       .tn-time { font-size: 11px; color: var(--muted); font-weight: 600; white-space: nowrap; }
       .trip-leg { margin-left: 22px; padding: 4px 0 4px 14px; border-left: 2px dashed var(--line-strong); font-size: 11.5px; font-weight: 600; color: var(--muted); }
       .user-loc-icon { background: transparent !important; border: none !important; }
-      .user-loc-wrap { position: relative; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; }
-      .user-loc-arrow { position: relative; width: 24px; height: 24px; will-change: transform; }
+      .user-loc-wrap { transition: transform 0.2s ease-out; position: relative; width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; }
+      .user-loc-arrow { position: relative; width: 31px; height: 31px; will-change: transform; }
       .user-loc-disc { position: absolute; inset: 0; border-radius: 50%; background: rgba(27,94,224,0.62); box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
       .user-loc-disc::after { content: ''; position: absolute; inset: 24%; border-radius: 50%; background: rgba(255,255,255,0.12); }
       .user-loc-halo { position: absolute; inset: 0; border-radius: 50%; background: rgba(11,114,231,0.35); animation: ulPulse 2s ease-out infinite; }
@@ -1088,6 +1088,7 @@ function initMap() {
     // Suivi : un geste de l'utilisateur met le recentrage auto en pause (bouton orange = appuyer pour recentrer)
     map.on('dragstart', () => pauseFollow(true));
     map.on('dragend', () => { if (followPaused) pauseFollow(false); });
+    map.on('zoom zoomend', updateCursorScale);
     map.on('zoomstart', () => {
         if (isNavTracking() && Date.now() > navZoomGuardUntil) { userZoomOverride = true; pauseFollow(false); }
     });
@@ -1443,11 +1444,12 @@ function shortestAngleDelta(fromDeg, toDeg) {
 function ensureUserMarker(lat, lng) {
     if (userMarker) return;
     const html = `<div class="user-loc-wrap"><div class="user-loc-halo"></div><div class="user-loc-disc"></div><svg class="user-loc-arrow" viewBox="0 0.7 24 24"><path fill="#fff" d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg></div>`;
-    userMarker = L.marker([lat, lng], { icon: L.divIcon({ html, iconSize: [32, 32], iconAnchor: [16, 16], className: 'user-loc-icon' }), zIndexOffset: 2000, interactive: false, keyboard: false }).addTo(map);
+    userMarker = L.marker([lat, lng], { icon: L.divIcon({ html, iconSize: [42, 42], iconAnchor: [21, 21], className: 'user-loc-icon' }), zIndexOffset: 2000, interactive: false, keyboard: false }).addTo(map);
     const el = userMarker.getElement();
     wrapEl = el.querySelector('.user-loc-wrap'); arrowEl = el.querySelector('.user-loc-arrow');
     arrowEl.style.transform = `rotate(${currentArrowRotation}deg)`;
     navShown = { lat, lng }; navStateCur = '';
+    updateCursorScale();
 }
 // 'track' / 'free' : bleu ; 'off' (hors tracé) : orange ; 'poor' (GPS imprécis) : gris
 function setNavState(state) {
@@ -1455,6 +1457,13 @@ function setNavState(state) {
     navStateCur = state;
     wrapEl.classList.toggle('st-off', state === 'off');
     wrapEl.classList.toggle('st-poor', state === 'poor');
+}
+// Taille du curseur selon le zoom : 100 % (42 px) à partir du zoom 14, décroît linéairement jusqu'à 45 % (≈ 19 px) au zoom 8 et en dessous
+const CURSOR_ZOOM_FULL = 14, CURSOR_ZOOM_MIN = 8, CURSOR_SCALE_MIN = 0.45;
+function updateCursorScale() {
+    if (!wrapEl || !map) return;
+    const t = Math.max(0, Math.min(1, (map.getZoom() - CURSOR_ZOOM_MIN) / (CURSOR_ZOOM_FULL - CURSOR_ZOOM_MIN)));
+    wrapEl.style.transform = `scale(${(CURSOR_SCALE_MIN + (1 - CURSOR_SCALE_MIN) * t).toFixed(3)})`;
 }
 function updateAccuracyCircle(acc) {
     if (acc > 0) {
