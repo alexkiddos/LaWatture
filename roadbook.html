@@ -238,6 +238,14 @@
       .pk-val { font-family: 'Space Grotesk', sans-serif; font-weight: 700; }
       .pk-val-wrap { display: flex; align-items: baseline; justify-content: center; gap: 2px; }
       .pk-unit { font-size: 10px; font-weight: 600; opacity: 0.6; }
+      .soc-pill { display: inline-block; margin-top: 4px; padding: 1px 7px; border-radius: 8px; font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 11px; white-space: nowrap; }
+      .soc-pill.ok { background: var(--dispo-ok-bg); color: var(--dispo-ok); }
+      .soc-pill.warn { background: var(--dispo-warn-bg); color: var(--dispo-warn); }
+      .soc-pill.alert { background: var(--dispo-alert-bg); color: var(--dispo-alert); }
+      .batt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .batt-grid label { font-size: 11px; color: var(--muted); font-weight: 600; display: flex; flex-direction: column; gap: 3px; }
+      .batt-grid .input-field { width: 100%; }
+      .batt-status { font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
       .detour-line { display: flex; align-items: center; justify-content: center; gap: 3px; font-size: 12px; font-weight: 600; opacity: 0.75; margin-top: 3px; white-space: nowrap; }
       .info-block { flex: 1; min-width: 0; }
       .op-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 15px; word-break: break-word; color: var(--op-color); }
@@ -397,6 +405,36 @@
 
       <!-- Réglages : repliés par défaut, ouverts via l'icône ⚙️ du bandeau -->
       <div class="settings-panel" id="settingsPanel" hidden>
+
+        <div class="settings-section-label" style="margin-top:4px;">Batterie · prévision SoC</div>
+        <div class="batt-grid">
+          <label>Capacité utile (kWh)<input type="number" inputmode="decimal" step="0.5" min="0" id="battKwhInput" class="input-field" oninput="onBattChange()"></label>
+          <label>Conso par défaut (kWh/100 km)<input type="number" inputmode="decimal" step="0.5" min="0" id="consoDefInput" class="input-field" value="18" oninput="onBattChange()"></label>
+          <label>SoC actuel (%)<input type="number" inputmode="decimal" step="1" min="0" max="100" id="socInput" class="input-field"></label>
+          <button type="button" class="btn-tool-wide" onclick="addSocReading()" style="align-self:end;">Relever le SoC ici</button>
+        </div>
+        <div class="batt-grid" style="margin-top:8px;">
+          <label>Puissance moy. recharge 10→80 % (kW)<input type="number" inputmode="decimal" step="5" min="0" id="pChargeInput" class="input-field" oninput="onBattChange()"></label>
+          <label>SoC cible (%)<input type="number" inputmode="decimal" step="5" min="20" max="100" id="socCibleInput" class="input-field" value="80" oninput="onBattChange()"></label>
+          <label>Réserve à l'arrivée (%)<input type="number" inputmode="decimal" step="1" min="0" max="50" id="socReserveInput" class="input-field" value="10" oninput="onBattChange()"></label>
+          <div class="segmented" id="planAutoSegmented" style="align-self:end;">
+            <button type="button" class="segmented-btn active" data-planauto="1" onclick="setPlanAuto(1)">Auto</button>
+            <button type="button" class="segmented-btn" data-planauto="0" onclick="setPlanAuto(0)">Fixe</button>
+          </div>
+        </div>
+        <div class="batt-grid" style="margin-top:8px;">
+          <label>Temps fixe par arrêt (min)<input type="number" inputmode="decimal" step="1" min="0" id="stopMinInput" class="input-field" value="4" oninput="onBattChange()"></label>
+          <label>Vitesse sur détour (km/h)<input type="number" inputmode="decimal" step="5" min="10" id="detourKmhInput" class="input-field" value="50" oninput="onBattChange()"></label>
+          <label>Pénalité petits sites 1-2 pts (min)<input type="number" inputmode="decimal" step="1" min="0" id="smallSiteInput" class="input-field" value="3" oninput="onBattChange()"></label>
+        </div>
+        <div class="batt-status" id="battStatus"></div>
+        <div class="settings-tools-row" style="display:flex; gap:8px; margin-bottom:8px;">
+          <button type="button" class="btn-tool-wide" onclick="suggestStopsUI()">⚡ Suggérer les arrêts</button>
+        </div>
+        <div class="settings-tools-row" style="display:flex; gap:8px;">
+          <button type="button" class="btn-tool-wide" onclick="resetSocReadings()">Réinitialiser relevés</button>
+          <button type="button" class="btn-tool-wide" onclick="exportItinerary()">Exporter (JSON)</button>
+        </div>
 
         <div class="settings-section-label with-actions" id="operatorSettingsBlock">
           <span>Opérateurs<span id="opCountLabel" class="settings-section-count"></span></span>
@@ -637,6 +675,29 @@ let PUISSANCE_MIN_KW = 150;
 let RAYON_RECHERCHE_KM = 3;
 let KM_MIN_DEPART = 5;
 let PDC_TOTAL_MIN = 0; // 0 = "Tous"
+// Écran « Aucune trace chargée » (bouton Importer) mémorisé avant tout rendu, pour le restaurer tant qu'aucune trace n'est chargée.
+const EMPTY_STATE_HTML = document.getElementById('stationsContainer').innerHTML;
+
+/* --- Prévision de SoC : relevés {soc, km} gardés en mémoire seulement (pas de persistance,
+   un SoC mémorisé serait périmé à la réouverture). Conso déduite des relevés, sans horodatage. --- */
+let BATT_KWH = 0;              // capacité utile (persistée)
+let CONSO_DEFAUT = 18;         // kWh/100 km, repli tant qu'aucune mesure fiable (persistée)
+let socReadings = [];          // [{soc, km}] croissants en km
+let consoCalib = null;         // dernière conso mesurée (conservée après une recharge)
+const SOC_MARGE = 1.05;        // marge de sécurité sur la conso
+const CONSO_MIN_KM = 15;       // distance mini entre relevés pour calculer une conso
+const CONSO_WINDOW = 4;        // nb de relevés récents pris en compte
+const SOC_WARN = 20, SOC_ALERT = 10;
+let P_CHARGE_KW = 0;           // puissance moyenne de recharge sur 10→80 % (persistée)
+let SOC_CIBLE = 80;            // SoC de départ de borne en mode Fixe / plafond en mode Auto
+let SOC_RESERVE = 10;          // SoC mini souhaité aux étapes et à l'arrivée
+let PLAN_AUTO = true;          // Auto : charge minimale pour atteindre la suite ; Fixe : toujours SOC_CIBLE
+const CHARGE_EFF = 0.85;       // plafond : fraction de la puissance de la borne réellement utilisable
+const TAIL_FACTOR = 0.4;       // au-dessus de 80 %, puissance = P × TAIL_FACTOR
+let STOP_OVERHEAD_MIN = 4;     // temps fixe par arrêt (branchement, démarrage de session, sortie), en min (persisté)
+let DETOUR_KMH = 50;           // vitesse moyenne sur le détour trace → borne, en km/h (persisté)
+let SMALL_SITE_MIN = 3;        // pénalité de fiabilité (min) pour les sites à 1-2 points ; sert au choix des arrêts seulement (persisté)
+let currentTraceName = '';
 let lastRawStationRows = null; // dernier jeu de lignes IRVE brutes reçu (cache ou téléchargement), pour ré-filtrer sans re-télécharger
 
 function sauvegarderReglages() {
@@ -646,7 +707,16 @@ function sauvegarderReglages() {
         kmMinDepart: KM_MIN_DEPART,
         pdcTotalMin: PDC_TOTAL_MIN,
         etapesSeules: STAGE_ONLY,
-        vitesseMoy: AVG_SPEED_KMH
+        vitesseMoy: AVG_SPEED_KMH,
+        battKwh: BATT_KWH,
+        consoDefaut: CONSO_DEFAUT,
+        pCharge: P_CHARGE_KW,
+        socCible: SOC_CIBLE,
+        socReserve: SOC_RESERVE,
+        planAuto: PLAN_AUTO,
+        stopMin: STOP_OVERHEAD_MIN,
+        detourKmh: DETOUR_KMH,
+        petitSiteMin: SMALL_SITE_MIN
     };
     try {
         localStorage.setItem(REGLAGES_KEY, JSON.stringify(reglages));
@@ -669,6 +739,16 @@ function restaurerReglages() {
     if (typeof reglages.kmMinDepart === 'number') setKmMinDepart(reglages.kmMinDepart);
     if (typeof reglages.pdcTotalMin === 'number') setPdcTotalMin(reglages.pdcTotalMin);
     if (typeof reglages.vitesseMoy === 'number') setAvgSpeed(reglages.vitesseMoy);
+    if (typeof reglages.battKwh === 'number') { BATT_KWH = reglages.battKwh; document.getElementById('battKwhInput').value = BATT_KWH || ''; }
+    if (typeof reglages.consoDefaut === 'number') { CONSO_DEFAUT = reglages.consoDefaut; document.getElementById('consoDefInput').value = CONSO_DEFAUT; }
+    if (typeof reglages.pCharge === 'number') { P_CHARGE_KW = reglages.pCharge; document.getElementById('pChargeInput').value = P_CHARGE_KW || ''; }
+    if (typeof reglages.socCible === 'number') { SOC_CIBLE = reglages.socCible; document.getElementById('socCibleInput').value = SOC_CIBLE; }
+    if (typeof reglages.socReserve === 'number') { SOC_RESERVE = reglages.socReserve; document.getElementById('socReserveInput').value = SOC_RESERVE; }
+    if (typeof reglages.planAuto === 'boolean') { PLAN_AUTO = reglages.planAuto; updateSegmentedActive('planAutoSegmented', 'planauto', PLAN_AUTO ? 1 : 0); }
+    if (typeof reglages.stopMin === 'number') { STOP_OVERHEAD_MIN = reglages.stopMin; document.getElementById('stopMinInput').value = STOP_OVERHEAD_MIN; }
+    if (typeof reglages.detourKmh === 'number' && reglages.detourKmh > 0) { DETOUR_KMH = reglages.detourKmh; document.getElementById('detourKmhInput').value = DETOUR_KMH; }
+    if (typeof reglages.petitSiteMin === 'number') { SMALL_SITE_MIN = reglages.petitSiteMin; document.getElementById('smallSiteInput').value = SMALL_SITE_MIN; }
+    updateBattStatus();
     if (typeof reglages.etapesSeules === 'boolean') setStageOnly(reglages.etapesSeules ? 1 : 0);
     log("RÉGLAGES", "Réglages restaurés depuis la dernière session.");
 }
@@ -1553,6 +1633,374 @@ function updatePosition(lat, lng, heading, speedMps, accuracy) {
     }
 }
 
+/* ===================== PRÉVISION DE SoC ===================== */
+
+// Conso mesurée (kWh/100 km) sur les derniers relevés ; null si pas assez de distance ou SoC non décroissant.
+function measuredConso() {
+    if (!BATT_KWH || socReadings.length < 2) return null;
+    const w = socReadings.slice(-CONSO_WINDOW), a = w[0], b = w[w.length - 1];
+    const dKm = b.km - a.km, dSoc = a.soc - b.soc;
+    if (dKm < CONSO_MIN_KM || dSoc <= 0) return null;
+    return (dSoc / 100) * BATT_KWH / dKm * 100;
+}
+function currentConso() {
+    const m = measuredConso();
+    return m !== null ? m : (consoCalib !== null ? consoCalib : CONSO_DEFAUT);
+}
+// SoC prévu (%) à un point km de la trace + détour aller ; null si prévision impossible.
+function predictSoc(km, detour) {
+    const a = socReadings[socReadings.length - 1];
+    if (!a || !BATT_KWH || km < a.km) return null;
+    const d = (km - a.km) + (detour || 0);
+    return a.soc - (d * currentConso() * SOC_MARGE / BATT_KWH);
+}
+// Durée de charge (ms) de socFrom à socTo : P jusqu'à 80 %, P × TAIL_FACTOR au-delà ; P plafonnée par la borne.
+function chargeDurationMs(socFrom, socTo, stationKw) {
+    if (!P_CHARGE_KW || !BATT_KWH || socTo <= socFrom) return 0;
+    const P = Math.min(P_CHARGE_KW, CHARGE_EFF * (stationKw || P_CHARGE_KW));
+    const lo = Math.max(socFrom, 0);
+    const a = Math.max(0, Math.min(socTo, 80) - lo), b = Math.max(0, socTo - Math.max(lo, 80));
+    const kwhPerPct = BATT_KWH / 100;
+    return (a * kwhPerPct / P + b * kwhPerPct / (P * TAIL_FACTOR)) * 3600000;
+}
+
+// Durée (ms) d'un détour simple entre la trace et la borne.
+function detourMs(s) { return (s.detour || 0) / DETOUR_KMH * 3600000; }
+
+// Plan des recharges depuis la position courante : étapes devant, puis arrivée. null si pas de relevé de SoC.
+function computePlan() {
+    if (!gpxPoints.length || !BATT_KWH) return null;
+    const soc0 = predictSoc(positionKm, 0);
+    if (soc0 === null) return null;
+    const c = currentConso() * SOC_MARGE / BATT_KWH;       // % de batterie par km
+    const endKm = gpxPoints[gpxPoints.length - 1].km;
+    const stages = stageStations().filter(s => s.km >= positionKm);
+    const nodes = [];
+    let km = positionKm, soc = soc0, backDetour = 0, t = 0;
+    stages.forEach((s, i) => {
+        const dist = (s.km - km) + backDetour + s.detour;
+        const socArr = soc - dist * c;
+        const next = stages[i + 1];
+        const nextD = next ? (next.km - s.km) + s.detour + next.detour : (endKm - s.km) + s.detour;
+        const need = Math.ceil(SOC_RESERVE + nextD * c);
+        const socDep = Math.max(socArr, PLAN_AUTO ? Math.min(need, SOC_CIBLE) : SOC_CIBLE);
+        const oneWayMs = detourMs(s);
+        t += travelMs(km, s.km) + oneWayMs;                 // arrivée à la borne (détour aller compris)
+        const chMs = chargeDurationMs(socArr, socDep, s.pwr);
+        const extraMs = STOP_OVERHEAD_MIN * 60000 + 2 * oneWayMs;   // temps fixe + détour aller/retour
+        nodes.push({ s, km: s.km, distFromPrev: dist, socArr, socDep, chargeMs: chMs, extraMs, arriveMs: t, departMs: t + chMs + oneWayMs + STOP_OVERHEAD_MIN * 60000 });
+        t += chMs + STOP_OVERHEAD_MIN * 60000 + oneWayMs;   // temps fixe, charge, puis détour retour
+        km = s.km; soc = socDep; backDetour = s.detour;
+    });
+    t += travelMs(km, endKm);
+    const endSoc = soc - ((endKm - km) + backDetour) * c;
+    return { nodes, endKm, endSoc, endMs: t, startSoc: soc0 };
+}
+// SoC prévu à une station quelconque, en tenant compte des recharges prévues avant elle.
+function predictSocPlanned(km, detour, plan) {
+    if (!plan) return predictSoc(km, detour);
+    let n = null;
+    for (const x of plan.nodes) if (x.km < km) n = x;
+    if (!n) return predictSoc(km, detour);
+    return n.socDep - ((km - n.km) + n.s.detour + (detour || 0)) * currentConso() * SOC_MARGE / BATT_KWH;
+}
+function socPillHtml(km, detour, plan) {
+    return socPillFromValue(predictSocPlanned(km, detour, plan));
+}
+function fmtSoc(v) { const r = Math.round(v); return r < 0 ? '\u2212' + Math.abs(r) : String(r); }
+function socPillFromValue(v) {
+    if (v === null || v === undefined) return '';
+    const cls = v < SOC_ALERT ? 'alert' : (v < SOC_WARN ? 'warn' : 'ok');
+    const r = Math.round(v);
+    return `<div class="soc-pill ${cls}">${r < 0 ? '\u2212' + Math.abs(r) : r} %</div>`;
+}
+function updateBattStatus(msg) {
+    const el = document.getElementById('battStatus');
+    if (!el) return;
+    if (msg) { el.textContent = msg; return; }
+    const src = measuredConso() !== null ? 'mesurée' : (consoCalib !== null ? 'dernière mesure' : 'par défaut');
+    el.textContent = `${socReadings.length} relevé(s) · conso ${currentConso().toFixed(1)} kWh/100 km (${src})`;
+}
+function onBattChange() {
+    BATT_KWH = parseFloat(document.getElementById('battKwhInput').value) || 0;
+    CONSO_DEFAUT = parseFloat(document.getElementById('consoDefInput').value) || 18;
+    P_CHARGE_KW = parseFloat(document.getElementById('pChargeInput').value) || 0;
+    SOC_CIBLE = Math.min(100, Math.max(20, parseFloat(document.getElementById('socCibleInput').value) || 80));
+    SOC_RESERVE = Math.max(0, parseFloat(document.getElementById('socReserveInput').value) || 0);
+    const num = (id, def, min) => { const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? def : Math.max(min, v); };
+    STOP_OVERHEAD_MIN = num('stopMinInput', 4, 0);
+    DETOUR_KMH = num('detourKmhInput', 50, 10);
+    SMALL_SITE_MIN = num('smallSiteInput', 3, 0);
+    sauvegarderReglages();
+    updateBattStatus();
+    renderList();
+}
+function addSocReading() {
+    const soc = parseFloat(document.getElementById('socInput').value);
+    if (!BATT_KWH) { updateBattStatus('Renseignez d\'abord la capacité utile.'); return; }
+    if (isNaN(soc) || soc < 0 || soc > 100) { updateBattStatus('SoC invalide (0 à 100).'); return; }
+    const km = positionKm;
+    // Retour en arrière ou même km : on écarte les relevés postérieurs ou égaux.
+    socReadings = socReadings.filter(r => r.km < km);
+    const last = socReadings[socReadings.length - 1];
+    if (last && soc > last.soc) { // SoC en hausse = recharge : on repart d'un nouvel ancrage
+        const m = measuredConso();
+        if (m !== null) consoCalib = m;
+        socReadings = [];
+    }
+    socReadings.push({ soc, km });
+    log("SOC", `Relevé ${soc} % au km ${km.toFixed(1)} · conso ${currentConso().toFixed(1)} kWh/100 km`);
+    updateBattStatus();
+    renderList(positionKm);
+}
+function setPlanAuto(v) {
+    PLAN_AUTO = !!v;
+    updateSegmentedActive('planAutoSegmented', 'planauto', v);
+    sauvegarderReglages();
+    renderList();
+}
+function resetSocReadings() {
+    socReadings = [];
+    consoCalib = null;
+    updateBattStatus();
+    renderList(positionKm);
+}
+
+/* ===================== EXPORT JSON ===================== */
+function exportItinerary() {
+    try { exportItineraryInner(); } catch (e) { log("EXPORT", 'Erreur : ' + e.message, true); updateBattStatus('Erreur export : ' + e.message); }
+}
+function exportItineraryInner() {
+    if (!gpxPoints.length) { updateBattStatus('Aucune trace à exporter.'); return; }
+    const plan = computePlan();
+    const pmap = new Map();
+    if (plan) plan.nodes.forEach(n => pmap.set(String(n.s.id), n));
+    const r1 = v => (v === null || v === undefined) ? null : Math.round(v * 10) / 10;
+    const first = gpxPoints[0], last = gpxPoints[gpxPoints.length - 1];
+    const stages = stageStations();
+    let prevKm = 0;
+    const steps = stages.map((s, i) => {
+        const n = pmap.get(String(s.id));
+        const step = {
+            index: i + 1, type: 'charge',
+            kmFromStart: r1(s.km), distanceFromPreviousKm: r1(s.km - prevKm), detourKm: r1(s.detour),
+            station: { id: String(s.id), name: s.nom, operator: s.op, commune: s.commune, lat: s.lat, lon: s.lng, powerKw: s.pwr },
+            arrivalSocPct: n ? r1(n.socArr) : null,
+            departureSocPct: n ? r1(n.socDep) : null,
+            chargeMinutes: n ? Math.round(n.chargeMs / 60000) : null,
+            overheadAndDetourMinutes: n ? Math.round(n.extraMs / 60000) : null,
+            arrivalInMinutes: n ? Math.round(n.arriveMs / 60000) : null
+        };
+        prevKm = s.km;
+        return step;
+    });
+    const stepN = Math.max(1, Math.ceil(gpxPoints.length / 500));
+    const track = gpxPoints.filter((_, i) => i % stepN === 0 || i === gpxPoints.length - 1)
+                           .map(p => [Math.round(p.lat * 1e5) / 1e5, Math.round(p.lon * 1e5) / 1e5, r1(p.km)]);
+    const chargeMin = plan ? Math.round(plan.nodes.reduce((a, n) => a + n.chargeMs, 0) / 60000) : null;
+    const extraMin = plan ? Math.round(plan.nodes.reduce((a, n) => a + n.extraMs, 0) / 60000) : null;
+    const out = {
+        format: 'roadbook-ve', version: 1, exportedAt: new Date().toISOString(),
+        trace: {
+            name: currentTraceName || null, distanceKm: r1(last.km),
+            start: { lat: first.lat, lon: first.lon },
+            end: { lat: last.lat, lon: last.lon, name: tripPlaces.end || null }
+        },
+        vehicle: {
+            batteryUsableKwh: BATT_KWH || null,
+            consumptionKwhPer100km: r1(currentConso()), safetyMargin: SOC_MARGE, stopOverheadMin: STOP_OVERHEAD_MIN, detourKmh: DETOUR_KMH,
+            chargePowerAvg10to80Kw: P_CHARGE_KW || null,
+            targetSocPct: SOC_CIBLE, reserveSocPct: SOC_RESERVE, chargeMode: PLAN_AUTO ? 'auto' : 'fixed'
+        },
+        position: { kmFromStart: r1(positionKm), socPct: plan ? r1(plan.startSoc) : null },
+        steps,
+        arrival: { kmFromStart: r1(last.km), socPct: plan ? r1(plan.endSoc) : null, inMinutes: plan ? Math.round(plan.endMs / 60000) : null },
+        totals: plan ? {
+            remainingKm: r1(last.km - positionKm), chargeMinutes: chargeMin, overheadAndDetourMinutes: extraMin,
+            drivingMinutes: Math.round(plan.endMs / 60000) - chargeMin - extraMin, totalMinutes: Math.round(plan.endMs / 60000)
+        } : null,
+        track
+    };
+    const base = (currentTraceName || 'itineraire').replace(/\.[^.]+$/, '').replace(/[^\w-]+/g, '_');
+    const filename = `roadbook-${base}.json`;
+    const text = JSON.stringify(out, null, 2);
+    const info = `${filename} : ${steps.length} étape(s) de charge${plan ? '' : ' (sans prévision SoC : aucun relevé)'}`;
+    deliverExport(text, filename, info);
+}
+
+// Livraison du JSON : partage natif -> téléchargement -> fenêtre de copie (si le téléchargement est bloqué)
+function deliverExport(text, filename, info) {
+    const blob = new Blob([text], { type: 'application/json' });
+    const done = (how) => { log("EXPORT", `${info} (${how})`); updateBattStatus(`Export : ${filename} (${how})`); };
+    const download = () => {
+        try {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob); a.download = filename; a.style.display = 'none';
+            document.body.appendChild(a); a.click();
+            setTimeout(() => { a.remove(); URL.revokeObjectURL(a.href); }, 4000);
+            done('téléchargé');
+        } catch (e) { showExportFallback(text, filename); }
+    };
+    try {
+        const file = new File([blob], filename, { type: 'application/json' });
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+            navigator.share({ files: [file], title: filename })
+                .then(() => done('partagé'))
+                .catch(err => {
+                    if (err && err.name === 'AbortError') return;
+                    log("EXPORT", 'Partage impossible : ' + (err && err.message), true);
+                    download();
+                });
+            return;
+        }
+    } catch (e) { log("EXPORT", 'Partage indisponible : ' + e.message, true); }
+    download();
+    // Si le téléchargement est bloqué (iframe / webview), la fenêtre de copie reste accessible
+    setTimeout(() => {
+        if (!document.getElementById('exportFallback')) {
+            const b = document.getElementById('battStatus');
+            if (b) { b.insertAdjacentHTML('beforeend', ' <a href="#" id="exportFallbackLink" style="text-decoration:underline;">Rien reçu ? Afficher le JSON</a>');
+                const l = document.getElementById('exportFallbackLink');
+                if (l) l.onclick = (ev) => { ev.preventDefault(); showExportFallback(text, filename); }; }
+        }
+    }, 600);
+}
+function showExportFallback(text, filename) {
+    let box = document.getElementById('exportFallback');
+    if (box) box.remove();
+    box = document.createElement('div');
+    box.id = 'exportFallback';
+    box.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px;';
+    box.innerHTML = '<div style="background:#fff;color:#111;border-radius:12px;padding:14px;width:100%;max-width:560px;display:flex;flex-direction:column;gap:8px;max-height:90vh;">'
+        + '<b></b><textarea readonly style="width:100%;height:50vh;font:11px monospace;"></textarea>'
+        + '<div style="display:flex;gap:8px;"><button type="button" id="expCopy" class="btn-tool-wide">Copier</button><button type="button" id="expClose" class="btn-tool-wide">Fermer</button></div></div>';
+    document.body.appendChild(box);
+    box.querySelector('b').textContent = filename;
+    const ta = box.querySelector('textarea'); ta.value = text;
+    box.querySelector('#expClose').onclick = () => box.remove();
+    box.querySelector('#expCopy').onclick = () => {
+        ta.select();
+        const ok = () => updateBattStatus('JSON copié.');
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(ok, () => { document.execCommand('copy'); ok(); });
+        else { document.execCommand('copy'); ok(); }
+    };
+}
+
+/* ===================== SUGGESTION AUTOMATIQUE DES ARRÊTS =====================
+   Programmation dynamique sur les stations de la trace (triées par km). État = (station, SoC d'arrivée arrondi).
+   Le modèle de recharge est celui de computePlan (mêmes distances, même règle « charge minimale pour atteindre la suite »
+   en mode Auto, SoC cible en mode Fixe), pour que le plan affiché ensuite colle à la proposition.
+   Coût = durée de charge + temps fixe par arrêt + temps de détour aller/retour (tous réglables) + pénalité pour les sites à 1-2 points. */
+let stagesBeforeSuggestion = null;
+
+function stopCostMs(n, socArr, socDep) {
+    return chargeDurationMs(socArr, socDep, n.pwr) + STOP_OVERHEAD_MIN * 60000 + 2 * detourMs(n)
+         + (n.total <= 2 ? SMALL_SITE_MIN * 60000 : 0);
+}
+
+// Retourne { ids, costMs } (ids dans l'ordre du trajet, éventuellement vide) ou null si aucun plan n'atteint l'arrivée avec la réserve R.
+function optimizeStops(soc0, R) {
+    const c = currentConso() * SOC_MARGE / BATT_KWH;       // % de batterie par km
+    const endKm = gpxPoints[gpxPoints.length - 1].km;
+    const cand = globalData.filter(s => s.km > positionKm && s.km < endKm && s.dispo !== 0 && s.pwr > 0);
+    const N = [{ start: true, km: positionKm, detour: 0 }, ...cand, { end: true, km: endKm, detour: 0 }];
+    const last = N.length - 1;
+    const states = N.map(() => new Map());
+    states[0].set('s', { a: soc0, cost: 0, prev: null });
+
+    for (let i = 0; i < last; i++) {
+        const ni = N[i];
+        for (const [key, st] of states[i]) {
+            for (let j = i + 1; j <= last; j++) {
+                const nj = N[j];
+                if ((nj.km - ni.km) * c > 100) break;      // hors de portée même avec une batterie pleine
+                const d = (nj.km - ni.km) + ni.detour + nj.detour;
+                let dep = st.a;
+                if (i > 0) {
+                    const need = Math.ceil(R + d * c);
+                    dep = Math.max(st.a, PLAN_AUTO ? Math.min(need, SOC_CIBLE) : SOC_CIBLE);
+                }
+                const arr = dep - d * c;
+                if (arr < R - 1e-9) continue;
+                const cost = st.cost + (i > 0 ? stopCostMs(ni, st.a, dep) : 0);
+                const k = j === last ? 'e' : String(Math.round(arr));
+                const ex = states[j].get(k);
+                if (!ex || cost < ex.cost) states[j].set(k, { a: arr, cost, prev: [i, key] });
+            }
+        }
+    }
+    const fin = states[last].get('e');
+    if (!fin) return null;
+    const ids = [];
+    let cur = fin;
+    while (cur.prev) {
+        const [pi, pk] = cur.prev;
+        if (pi > 0) ids.push(String(N[pi].id));
+        cur = states[pi].get(pk);
+    }
+    return { ids: ids.reverse(), costMs: fin.cost };
+}
+
+function setBattStatusHtml(html) {
+    const el = document.getElementById('battStatus');
+    if (el) el.innerHTML = html;
+}
+function undoSuggestion() {
+    if (!stagesBeforeSuggestion) return;
+    stageIds = new Set(stagesBeforeSuggestion);
+    stagesBeforeSuggestion = null;
+    saveStages(); renderList();
+    updateBattStatus('Suggestion annulée : étapes précédentes rétablies.');
+    log("ÉTAPES", "Suggestion annulée.");
+}
+
+function suggestStopsUI() {
+    try {
+        if (!gpxPoints.length || !globalData.length) { updateBattStatus('Chargez d\'abord une trace et ses stations.'); return; }
+        if (!BATT_KWH) { updateBattStatus('Renseignez d\'abord la capacité utile.'); return; }
+        if (!P_CHARGE_KW) { updateBattStatus('Renseignez la puissance moyenne de recharge (10→80 %).'); return; }
+        const soc0 = predictSoc(positionKm, 0);
+        if (soc0 === null) { updateBattStatus('Relevez d\'abord le SoC (« Relever le SoC ici ») pour partir de votre position.'); return; }
+
+        let relaxed = false;
+        let res = optimizeStops(soc0, SOC_RESERVE);
+        if (!res && SOC_RESERVE > 0) { res = optimizeStops(soc0, 0); relaxed = !!res; }
+        if (!res) {
+            updateBattStatus('Aucun enchaînement de stations ne permet d\'atteindre l\'arrivée avec ce SoC et cette autonomie (trou dans les bornes ?). Élargissez le rayon de recherche ou baissez la puissance minimale.');
+            return;
+        }
+
+        const before = computePlan();
+        const beforeMs = (before && stageStations().some(s => s.km >= positionKm)) ? before.endMs : null;
+
+        stagesBeforeSuggestion = new Set(stageIds);
+        const keep = [...stageIds].filter(id => { const s = getStation(id); return s && s.km < positionKm; });  // étapes déjà derrière nous
+        stageIds = new Set([...keep, ...res.ids]);
+        saveStages(); renderList();
+
+        const plan = computePlan();
+        const n = res.ids.length;
+        let msg = n === 0 ? 'Aucun arrêt nécessaire : l\'arrivée est atteignable sans recharge.'
+                          : `${n} arrêt${n > 1 ? 's' : ''} proposé${n > 1 ? 's' : ''}`;
+        if (plan) {
+            const chargeMin = Math.round(plan.nodes.filter(x => res.ids.includes(String(x.s.id))).reduce((a, x) => a + x.chargeMs, 0) / 60000);
+            msg += ` · charge ${chargeMin} min · trajet ${formatDuration(plan.endMs)} · arrivée ${fmtSoc(plan.endSoc)} %`;
+            if (beforeMs !== null) {
+                const diff = Math.round((beforeMs - plan.endMs) / 60000);
+                msg += diff > 0 ? ` · ${diff} min gagnées vs vos étapes` : (diff < 0 ? ` · ${-diff} min de plus que vos étapes` : ' · même durée que vos étapes');
+            }
+        }
+        if (relaxed) msg += ` · ⚠ réserve de ${SOC_RESERVE} % impossible à tenir sur tout le trajet`;
+        log("ÉTAPES", msg);
+        setBattStatusHtml(msg.replace(/&/g, '&amp;').replace(/</g, '&lt;') + ' <a href="#" id="undoSuggestLink" style="text-decoration:underline;">Annuler</a>');
+        const l = document.getElementById('undoSuggestLink');
+        if (l) l.onclick = (ev) => { ev.preventDefault(); undoSuggestion(); };
+    } catch (e) {
+        log("ÉTAPES", 'Erreur suggestion : ' + e.message, true);
+        updateBattStatus('Erreur suggestion : ' + e.message);
+    }
+}
+
 function onKmInputChange() {
     const kmVal = parseFloat(document.getElementById('kmInput').value) || 0;
     updateTraceDisplay(kmVal);
@@ -1587,6 +2035,7 @@ function processTraceContent(content, filename) {
     roadbookManeuvers = [];
     importedStops = [];
     traceHasTime = false;
+    socReadings = []; consoCalib = null; updateBattStatus();
     globalData = []; // les stations de la trace précédente (km/étapes) ne doivent pas survivre
 
     if (filename.endsWith('.json') || filename.endsWith('.geojson') || content.trim().startsWith('{')) {
@@ -1612,6 +2061,7 @@ function processTraceContent(content, filename) {
 
     // Étapes mémorisées pour CETTE trace + bandeau distance/temps (arrivée dès maintenant)
     currentTraceKey = computeTraceKey(filename);
+    currentTraceName = filename || '';
     loadStages();
     syncStationMarkers([]);
     resolveTripPlaces();
@@ -2257,6 +2707,12 @@ function renderList(kmOverride) {
     }
     positionKm = kmFilter;
 
+    if (!gpxPoints.length) { // pas de trace : on garde l'écran d'import
+        const box = document.getElementById('stationsContainer');
+        if (!box.querySelector('#emptyStateInitial')) box.innerHTML = EMPTY_STATE_HTML;
+        return;
+    }
+
     if (currentViewMode === 'ROADBOOK') {
         renderRoadbookList(kmFilter);
     } else if (currentViewMode === 'TRAJET') {
@@ -2669,6 +3125,9 @@ function renderTripList(kmFilter) {
     // Seules les étapes encore devant vous sont listées : les étapes franchies disparaissent.
     const nodes = [...stages.filter(s => s.km >= kmFilter).map(s => ({ type: 'stage', km: s.km, s })), { type: 'end', km: last.km }];
     const nextIdx = 0; // le premier point de la liste est toujours le prochain
+    const plan = computePlan();
+    const pmap = new Map();
+    if (plan) plan.nodes.forEach(n => pmap.set(String(n.s.id), n));
 
     let html = '';
     nodes.forEach((nd, idx) => {
@@ -2679,14 +3138,18 @@ function renderTripList(kmFilter) {
         const cls = 'trip-node' + (idx === nextIdx ? ' is-next' : '') + (nd.type === 'stage' ? ' is-stage' : '');
         // Distance et temps RESTANTS depuis la position actuelle (champ km manuel, GPS ou simulation) :
         // recalculés à chaque rendu, donc à chaque changement de km.
-        const right = `<div class="tn-right"><div class="tn-km">${formatDistKm(nd.km - kmFilter)}</div><div class="tn-time">${formatDuration(travelMs(kmFilter, nd.km))}</div></div>`;
+        const pn = (plan && nd.type === 'stage') ? pmap.get(String(nd.s.id)) : null;
+        const tMs = plan ? (nd.type === 'stage' ? (pn ? pn.arriveMs : 0) : plan.endMs) : travelMs(kmFilter, nd.km);
+        const pillV = plan ? (nd.type === 'stage' ? (pn ? pn.socArr : null) : plan.endSoc) : null;
+        const right = `<div class="tn-right"><div class="tn-km">${formatDistKm(nd.km - kmFilter)}</div><div class="tn-time">${formatDuration(tMs)}</div>${socPillFromValue(pillV)}</div>`;
+        const chargeLine = pn ? `<div class="tn-sub">${fmtSoc(pn.socArr)} → ${fmtSoc(pn.socDep)} %${pn.chargeMs ? ' · ⚡ ' + formatDuration(pn.chargeMs) : ''}${(pn.chargeMs || pn.extraMs) ? ' · arrêt ' + formatDuration(pn.chargeMs + pn.extraMs) : ''}</div>` : '';
 
         if (nd.type === 'stage') {
             const sid = String(nd.s.id);
             const n = stageOrder.get(sid) || '';
             html += `<div class="${cls}" data-sid="${escapeHtml(sid)}" onclick="focusStationOnMapEl(this)">
               <span class="tn-ico">⚡</span>
-              <div class="tn-main"><div class="tn-title">Étape ${n} · ${escapeHtml(nd.s.op)}</div><div class="tn-sub">${escapeHtml(nd.s.commune)}</div></div>${right}</div>`;
+              <div class="tn-main"><div class="tn-title">Étape ${n} · ${escapeHtml(nd.s.op)}</div><div class="tn-sub">${escapeHtml(nd.s.commune)}</div>${chargeLine}</div>${right}</div>`;
         } else {
             html += `<div class="${cls}" onclick="focusPoint(${last.lat}, ${last.lon})">
               <span class="tn-ico">🏁</span>
@@ -2710,6 +3173,7 @@ function renderStationsList(kmFilter) {
 
     refreshStageOrder();
     const stageList = stageStations();
+    const plan = computePlan();
 
     let html = "";
     const markerStations = [];
@@ -2753,6 +3217,7 @@ function renderStationsList(kmFilter) {
                 <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v9a4 4 0 0 0 4 4h6"/><path d="M13 12l4 4-4 4"/></svg>
                 ${s.detour.toFixed(2)} km
               </div>
+              ${socPillHtml(s.km, s.detour, plan)}
               ${badgeHtml}
             </div>
             <div class='info-block'>
