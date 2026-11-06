@@ -657,6 +657,7 @@ let currentViewMode = 'STATIONS';
 /* --- Étapes (stations choisies comme étapes), bandeau distance/temps --- */
 const ETAPES_KEY = 'roadbook_etapes';
 let importedStops = [];        // étapes reçues de GeoRouter, à rapprocher des stations IRVE
+let importedRaw = null;        // dernier JSON importé (format commun GeoRouter/Roadbook), réutilisé tel quel à l'export
 let stageIds = new Set();      // ids stables (String) des stations choisies pour la trace courante
 let stageOrder = new Map();    // id -> numéro d'étape (1, 2, ...) dans l'ordre du trajet
 let currentTraceKey = '';
@@ -1794,35 +1795,63 @@ function exportItineraryInner() {
         prevKm = s.km;
         return step;
     });
-    const stepN = Math.max(1, Math.ceil(gpxPoints.length / 500));
-    const track = gpxPoints.filter((_, i) => i % stepN === 0 || i === gpxPoints.length - 1)
-                           .map(p => [Math.round(p.lat * 1e5) / 1e5, Math.round(p.lon * 1e5) / 1e5, r1(p.km)]);
     const chargeMin = plan ? Math.round(plan.nodes.reduce((a, n) => a + n.chargeMs, 0) / 60000) : null;
     const extraMin = plan ? Math.round(plan.nodes.reduce((a, n) => a + n.extraMs, 0) / 60000) : null;
+    // --- Format commun GeoRouter / Roadbook : réponse GraphHopper + bloc "georouter" (+ bloc "roadbook") ---
+    const baseWps = (importedRaw && importedRaw.georouter && Array.isArray(importedRaw.georouter.waypoints))
+        ? importedRaw.georouter.waypoints : [];
+    const keepWp = k => baseWps.filter(w => w.kind === k).map(w => ({ kind: w.kind, name: w.name || '', lat: w.lat, lon: w.lon, distKm: w.distKm == null ? null : w.distKm }));
+    const startWp = keepWp('start')[0] || { kind: 'start', name: '', lat: first.lat, lon: first.lon, distKm: 0 };
+    const endWp = keepWp('end')[0] || { kind: 'end', name: tripPlaces.end || '', lat: last.lat, lon: last.lon, distKm: r1(last.km) };
+    if (!endWp.name && tripPlaces.end) endWp.name = tripPlaces.end;
+    const stopWps = stages.map(s => ({ kind: 'stop', name: s.nom || '', lat: s.lat, lon: s.lng, distKm: r1(s.km) }));
+    const passWps = keepWp('pass');
+    const mids = stopWps.concat(passWps).sort((a, b) => (a.distKm == null ? 0 : a.distKm) - (b.distKm == null ? 0 : b.distKm));
+    const waypoints = [startWp, ...mids, endWp];
+
+    // Chemin GraphHopper : on réutilise l'original s'il existe, sinon on le reconstruit (points complets, non décimés)
+    let paths;
+    if (importedRaw && importedRaw.paths && importedRaw.paths.length) {
+        paths = importedRaw.paths;
+    } else {
+        const totalM = Math.round(last.km * 1000);
+        const timeMs = traceHasTime ? Math.round(last.t) : 0;
+        const instr = roadbookManeuvers.map((m, i) => {
+            const nextIdx = i + 1 < roadbookManeuvers.length ? roadbookManeuvers[i + 1].shapeIndex : gpxPoints.length - 1;
+            return { text: m.instruction, distance: Math.round(m.length * 1000), sign: m.sign == null ? 0 : m.sign,
+                     interval: [m.shapeIndex, nextIdx], time: 0 };
+        });
+        paths = [{
+            distance: totalM, time: timeMs, points_encoded: false,
+            bbox: [Math.min(...gpxPoints.map(p => p.lon)), Math.min(...gpxPoints.map(p => p.lat)),
+                   Math.max(...gpxPoints.map(p => p.lon)), Math.max(...gpxPoints.map(p => p.lat))],
+            points: { type: 'LineString', coordinates: gpxPoints.map(p => [Math.round(p.lon * 1e6) / 1e6, Math.round(p.lat * 1e6) / 1e6]) },
+            instructions: instr, details: {}
+        }];
+    }
     const out = {
-        format: 'roadbook-ve', version: 1, exportedAt: new Date().toISOString(),
-        trace: {
-            name: currentTraceName || null, distanceKm: r1(last.km),
-            start: { lat: first.lat, lon: first.lon },
-            end: { lat: last.lat, lon: last.lon, name: tripPlaces.end || null }
-        },
-        vehicle: {
-            batteryUsableKwh: BATT_KWH || null,
-            consumptionKwhPer100km: r1(currentConso()), safetyMargin: SOC_MARGE, stopOverheadMin: STOP_OVERHEAD_MIN, detourKmh: DETOUR_KMH,
-            chargePowerAvg10to80Kw: P_CHARGE_KW || null,
-            targetSocPct: SOC_CIBLE, reserveSocPct: SOC_RESERVE, chargeMode: PLAN_AUTO ? 'auto' : 'fixed'
-        },
-        position: { kmFromStart: r1(positionKm), socPct: plan ? r1(plan.startSoc) : null },
-        steps,
-        arrival: { kmFromStart: r1(last.km), socPct: plan ? r1(plan.endSoc) : null, inMinutes: plan ? Math.round(plan.endMs / 60000) : null },
-        totals: plan ? {
-            remainingKm: r1(last.km - positionKm), chargeMinutes: chargeMin, overheadAndDetourMinutes: extraMin,
-            drivingMinutes: Math.round(plan.endMs / 60000) - chargeMin - extraMin, totalMinutes: Math.round(plan.endMs / 60000)
-        } : null,
-        track
+        ...(importedRaw || {}),
+        paths,
+        georouter: { version: 1, waypoints },
+        roadbook: {
+            version: 2, exportedAt: new Date().toISOString(), traceName: currentTraceName || null,
+            vehicle: {
+                batteryUsableKwh: BATT_KWH || null,
+                consumptionKwhPer100km: r1(currentConso()), safetyMargin: SOC_MARGE, stopOverheadMin: STOP_OVERHEAD_MIN, detourKmh: DETOUR_KMH,
+                chargePowerAvg10to80Kw: P_CHARGE_KW || null,
+                targetSocPct: SOC_CIBLE, reserveSocPct: SOC_RESERVE, chargeMode: PLAN_AUTO ? 'auto' : 'fixed'
+            },
+            position: { kmFromStart: r1(positionKm), socPct: plan ? r1(plan.startSoc) : null },
+            steps,
+            arrival: { kmFromStart: r1(last.km), socPct: plan ? r1(plan.endSoc) : null, inMinutes: plan ? Math.round(plan.endMs / 60000) : null },
+            totals: plan ? {
+                remainingKm: r1(last.km - positionKm), chargeMinutes: chargeMin, overheadAndDetourMinutes: extraMin,
+                drivingMinutes: Math.round(plan.endMs / 60000) - chargeMin - extraMin, totalMinutes: Math.round(plan.endMs / 60000)
+            } : null
+        }
     };
     const base = (currentTraceName || 'itineraire').replace(/\.[^.]+$/, '').replace(/[^\w-]+/g, '_');
-    const filename = `roadbook-${base}.json`;
+    const filename = `${base}.json`;
     const text = JSON.stringify(out, null, 2);
     const info = `${filename} : ${steps.length} étape(s) de charge${plan ? '' : ' (sans prévision SoC : aucun relevé)'}`;
     deliverExport(text, filename, info);
@@ -2034,6 +2063,7 @@ function processTraceContent(content, filename) {
     gpxPoints = [];
     roadbookManeuvers = [];
     importedStops = [];
+    importedRaw = null;
     traceHasTime = false;
     socReadings = []; consoCalib = null; updateBattStatus();
     globalData = []; // les stations de la trace précédente (km/étapes) ne doivent pas survivre
@@ -2218,6 +2248,7 @@ function parseJSONTrace(jsonString) {
             });
         }
         if (data.paths && data.paths.length > 0) {
+            importedRaw = data;
             importedStops = ((data.georouter && data.georouter.waypoints) || []).filter(w => w.kind === 'stop');
             if (importedStops.length) log("IMPORT", `${importedStops.length} étape(s) reçue(s) de GeoRouter.`);
         }

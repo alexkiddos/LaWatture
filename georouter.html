@@ -2789,7 +2789,7 @@
             log('IMPORT', `Import réussi (format GraphHopper) : ${data.paths[0].points.coordinates.length} points.`
               + (restored ? ` Points restaurés : ${routePoints.vias.length} intermédiaire(s), itinéraire modifiable.` : ' Aucun point d\'itinéraire dans ce fichier (non modifiable).'));
           } else {
-            throw new Error("Format non supporté (JSON GraphHopper attendu).");
+            throw new Error("Format non supporté (JSON GeoRouter / Roadbook attendu : réponse GraphHopper avec « paths »).");
           }
         } catch (err) {
           log('IMPORT', `Échec : ${err.message}`, true);
@@ -2832,7 +2832,13 @@
           distKm: routeWpCum ? +(routeWpCum[i] / 1000).toFixed(2) : null
         };
       });
-      return { ...rawRouteResponse, georouter: { version: 1, waypoints } };
+      // Bloc "roadbook" (export Roadbook VE) : seuls les réglages véhicule survivent à une réédition,
+      // le plan de charge (étapes, arrivée, totaux) est périmé dès que l'itinéraire change.
+      const out = { ...rawRouteResponse, georouter: { version: 1, waypoints } };
+      if (rawRouteResponse && rawRouteResponse.roadbook) {
+        out.roadbook = { version: rawRouteResponse.roadbook.version, vehicle: rawRouteResponse.roadbook.vehicle };
+      }
+      return out;
     }
 
     function exportJSON() {
