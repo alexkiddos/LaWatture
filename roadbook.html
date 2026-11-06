@@ -193,14 +193,44 @@
       .segmented-btn { flex: 1; border: none; background: transparent; color: var(--text); font-family: 'Inter', sans-serif; font-weight: 600; font-size: 13px; padding: 7px 6px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
       .segmented-btn.active { background: var(--accent); color: var(--on-accent); }
 
-      .settings-advanced-toggle { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; padding: 6px 2px; cursor: pointer; user-select: none; }
-      .settings-advanced-toggle span { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.02em; }
-      .settings-advanced-toggle svg { transition: transform 0.15s; color: var(--muted); flex-shrink: 0; }
-      .settings-advanced-toggle.open svg { transform: rotate(180deg); }
-      #advancedSettingsBody[hidden] { display: none; }
 
-      .settings-tools-row { display: flex; gap: 8px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
-      .settings-tools-row[hidden] { display: none; }
+      /* --- Sections thématiques du panneau réglages (accordéon) --- */
+      .settings-group { border-top: 1px solid var(--border); }
+      .settings-group:first-child { border-top: none; }
+      .settings-group-head { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 6px 2px; background: none; border: none; color: var(--text); font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+      .settings-group-title { flex: none; }
+      .settings-group-summary { flex: 1; min-width: 0; text-align: right; font-size: 11px; font-weight: 500; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .settings-group.open .settings-group-summary { visibility: hidden; }
+      .settings-group-head svg { flex-shrink: 0; color: var(--muted); transition: transform 0.15s; }
+      .settings-group.open .settings-group-head svg { transform: rotate(180deg); }
+      .settings-group-body { padding: 2px 0 14px; }
+      .settings-group-body[hidden] { display: none; }
+      .settings-hint { font-size: 11px; color: var(--muted); margin: 6px 0 0; }
+      .settings-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+      .settings-actions.single { grid-template-columns: 1fr; }
+      .settings-actions[hidden] { display: none; }
+      .soc-stepper { display: flex; align-items: center; gap: 6px; }
+      .soc-stepper .input-field { width: 64px; height: 38px; flex: 0 0 auto; font-size: 16px; }
+      .soc-stepper .btn-tool-wide { min-width: 0; padding: 0; }
+
+      /* --- Barre SoC intégrée aux réglages, à la même hauteur que l'entête --- */
+      .soc-bar { margin: 4px 0 12px; }
+      .soc-quick { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; -webkit-overflow-scrolling: touch; }
+      .soc-quick::-webkit-scrollbar { display: none; }
+      .soc-quick[hidden], .soc-bar-status[hidden], .soc-undo[hidden], .soc-bar-setup[hidden] { display: none; }
+      .soc-quick-btn { flex: 1 0 auto; min-width: 36px; height: 34px; padding: 0 4px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--panel-2); color: var(--text); font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+      .soc-quick-btn:active { filter: brightness(0.94); }
+      .soc-quick-btn.flash { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+      .soc-stepper-bar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; overflow: visible; }
+      .soc-stepper-bar .soc-quick-btn { min-width: 0; height: 34px; padding: 0 2px; font-size: 14px; }
+      .soc-stepper-bar .soc-validate-btn { display: flex; align-items: center; justify-content: center; background: var(--accent); color: var(--on-accent); border-color: var(--accent); white-space: nowrap; }
+      .soc-validate-btn span { display: block; white-space: nowrap; font-family: 'Space Grotesk', sans-serif; font-size: 15px; line-height: 1; letter-spacing: -0.35px; }
+      .soc-stepper-bar .soc-validate-btn:active { filter: brightness(0.9); }
+      .soc-bar-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 24px; margin-top: 4px; font-size: 12px; color: var(--muted); }
+      .soc-bar-status b { color: var(--text); font-family: 'Space Grotesk', sans-serif; }
+      .soc-undo { height: 24px; padding: 0 6px; background: none; border: none; color: var(--accent); font-family: 'Inter', sans-serif; font-weight: 600; font-size: 12px; cursor: pointer; flex-shrink: 0; }
+      .soc-bar-setup { width: 100%; height: 34px; border: 1px dashed var(--line-strong); border-radius: 10px; background: transparent; color: var(--muted); font-family: 'Inter', sans-serif; font-weight: 600; font-size: 12px; cursor: pointer; }
+
       .btn-tool-wide { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; height: 38px; background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--btn-text); cursor: pointer; font-family: 'Inter', sans-serif; }
       .btn-tool-wide:hover, .btn-tool-wide:active { filter: brightness(0.96); }
 
@@ -399,44 +429,45 @@
           </button>
         </div>
       </div>
+
+
     </div>
 
     <div class="sheet-body" id="sheetBody">
 
-      <!-- Réglages : repliés par défaut, ouverts via l'icône ⚙️ du bandeau -->
+      <!-- Réglages : repliés par défaut, ouverts via l'icône ⚙️ du bandeau.
+           Six sections par thème, en accordéon (une seule ouverte à la fois). -->
       <div class="settings-panel" id="settingsPanel" hidden>
 
-        <div class="settings-section-label" style="margin-top:4px;">Batterie · prévision SoC</div>
-        <div class="batt-grid">
-          <label>Capacité utile (kWh)<input type="number" inputmode="decimal" step="0.5" min="0" id="battKwhInput" class="input-field" oninput="onBattChange()"></label>
-          <label>Conso par défaut (kWh/100 km)<input type="number" inputmode="decimal" step="0.5" min="0" id="consoDefInput" class="input-field" value="18" oninput="onBattChange()"></label>
-          <label>SoC actuel (%)<input type="number" inputmode="decimal" step="1" min="0" max="100" id="socInput" class="input-field"></label>
-          <button type="button" class="btn-tool-wide" onclick="addSocReading()" style="align-self:end;">Relever le SoC ici</button>
+      <!-- Suivi SoC : réglage par pas, puis validation au km courant -->
+      <div class="soc-bar" id="socBar">
+        <input type="number" inputmode="decimal" step="1" min="0" max="100" id="socInput" aria-label="SoC actuel en pourcent" hidden>
+        <div class="soc-quick soc-stepper-bar" id="socBarQuick" role="group" aria-label="Ajuster puis relever le SoC" hidden>
+          <button type="button" class="soc-quick-btn" onclick="stepSocBar(-10)" aria-label="Diminuer le SoC de 10 points">−10</button>
+          <button type="button" class="soc-quick-btn" onclick="stepSocBar(-5)" aria-label="Diminuer le SoC de 5 points">−5</button>
+          <button type="button" class="soc-quick-btn" onclick="stepSocBar(-1)" aria-label="Diminuer le SoC de 1 point">−1</button>
+          <button type="button" class="soc-quick-btn soc-validate-btn" id="socBarValidate" onclick="validateSocBar()" aria-label="Enregistrer le SoC affiché" title="Enregistrer le SoC au kilomètre courant">
+            <span id="socBarValue">—%</span>
+          </button>
+          <button type="button" class="soc-quick-btn" onclick="stepSocBar(1)" aria-label="Augmenter le SoC de 1 point">+1</button>
+          <button type="button" class="soc-quick-btn" onclick="stepSocBar(5)" aria-label="Augmenter le SoC de 5 points">+5</button>
+          <button type="button" class="soc-quick-btn" onclick="stepSocBar(10)" aria-label="Augmenter le SoC de 10 points">+10</button>
         </div>
-        <div class="batt-grid" style="margin-top:8px;">
-          <label>Puissance moy. recharge 10→80 % (kW)<input type="number" inputmode="decimal" step="5" min="0" id="pChargeInput" class="input-field" oninput="onBattChange()"></label>
-          <label>SoC cible (%)<input type="number" inputmode="decimal" step="5" min="20" max="100" id="socCibleInput" class="input-field" value="80" oninput="onBattChange()"></label>
-          <label>Réserve à l'arrivée (%)<input type="number" inputmode="decimal" step="1" min="0" max="50" id="socReserveInput" class="input-field" value="10" oninput="onBattChange()"></label>
-          <div class="segmented" id="planAutoSegmented" style="align-self:end;">
-            <button type="button" class="segmented-btn active" data-planauto="1" onclick="setPlanAuto(1)">Auto</button>
-            <button type="button" class="segmented-btn" data-planauto="0" onclick="setPlanAuto(0)">Fixe</button>
-          </div>
+        <div class="soc-bar-status" id="socBarStatus" hidden>
+          <span id="socBarStatusText"></span>
+          <button type="button" class="soc-undo" id="socUndoBtn" onclick="undoLastSocReading()" hidden>Annuler</button>
         </div>
-        <div class="batt-grid" style="margin-top:8px;">
-          <label>Temps fixe par arrêt (min)<input type="number" inputmode="decimal" step="1" min="0" id="stopMinInput" class="input-field" value="4" oninput="onBattChange()"></label>
-          <label>Vitesse sur détour (km/h)<input type="number" inputmode="decimal" step="5" min="10" id="detourKmhInput" class="input-field" value="50" oninput="onBattChange()"></label>
-          <label>Pénalité petits sites 1-2 pts (min)<input type="number" inputmode="decimal" step="1" min="0" id="smallSiteInput" class="input-field" value="3" oninput="onBattChange()"></label>
-        </div>
-        <div class="batt-status" id="battStatus"></div>
-        <div class="settings-tools-row" style="display:flex; gap:8px; margin-bottom:8px;">
-          <button type="button" class="btn-tool-wide" onclick="suggestStopsUI()">⚡ Suggérer les arrêts</button>
-        </div>
-        <div class="settings-tools-row" style="display:flex; gap:8px;">
-          <button type="button" class="btn-tool-wide" onclick="resetSocReadings()">Réinitialiser relevés</button>
-          <button type="button" class="btn-tool-wide" onclick="exportItinerary()">Exporter (JSON)</button>
-        </div>
+        <button type="button" class="soc-bar-setup" id="socBarSetup" onclick="openSettingsGroup('grpVehicule')">Renseigner la batterie pour relever le SoC</button>
+      </div>
 
-        <div class="settings-section-label with-actions" id="operatorSettingsBlock">
+        <div class="settings-group open" id="grpFiltres">
+          <button type="button" class="settings-group-head" aria-expanded="true" onclick="toggleSettingsGroup('grpFiltres')">
+            <span class="settings-group-title">Filtres stations</span>
+            <span class="settings-group-summary" id="sumFiltres"></span>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="settings-group-body">
+<div class="settings-section-label with-actions" id="operatorSettingsBlock">
           <span>Opérateurs<span id="opCountLabel" class="settings-section-count"></span></span>
           <span class="op-select-links">
             <button type="button" class="op-link-btn" onclick="toggleSelectAllOps(true)">Tout</button><span class="op-link-sep">·</span><button type="button" class="op-link-btn" onclick="toggleSelectAllOps(false)">Aucun</button>
@@ -468,19 +499,7 @@
           <button type="button" class="segmented-btn" data-stageonly="1" onclick="setStageOnly(1)">Étapes seules</button>
         </div>
 
-        <div class="settings-advanced-toggle" id="advancedToggleRow" onclick="toggleAdvancedSettings()">
-          <span>Avancé</span>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg>
-        </div>
-        <div id="advancedSettingsBody" hidden>
-          <div class="settings-section-label">Distance mini avant 1ère borne</div>
-          <div class="segmented" id="kmMinSegmented">
-            <button type="button" class="segmented-btn" data-kmmin="0" onclick="setKmMinDepart(0)">0 km</button>
-            <button type="button" class="segmented-btn active" data-kmmin="5" onclick="setKmMinDepart(5)">5 km</button>
-            <button type="button" class="segmented-btn" data-kmmin="10" onclick="setKmMinDepart(10)">10 km</button>
-          </div>
-
-          <div class="settings-section-label">PDC total minimum</div>
+        <div class="settings-section-label">PDC total minimum</div>
           <div class="segmented" id="pdcTotalMinSegmented">
             <button type="button" class="segmented-btn active" data-pdctotalmin="0" onclick="setPdcTotalMin(0)">Tous</button>
             <button type="button" class="segmented-btn" data-pdctotalmin="2" onclick="setPdcTotalMin(2)">2+</button>
@@ -488,17 +507,100 @@
             <button type="button" class="segmented-btn" data-pdctotalmin="5" onclick="setPdcTotalMin(5)">5+</button>
           </div>
 
-          <div class="settings-section-label">Vitesse moyenne (si la trace n'a pas de durée)</div>
+          <div class="settings-section-label">Départ : km avant la 1ère borne</div>
+          <div class="segmented" id="kmMinSegmented">
+            <button type="button" class="segmented-btn" data-kmmin="0" onclick="setKmMinDepart(0)">0 km</button>
+            <button type="button" class="segmented-btn active" data-kmmin="5" onclick="setKmMinDepart(5)">5 km</button>
+            <button type="button" class="segmented-btn" data-kmmin="10" onclick="setKmMinDepart(10)">10 km</button>
+          </div>
+
+          
+          </div>
+        </div>
+        <div class="settings-group" id="grpVehicule">
+          <button type="button" class="settings-group-head" aria-expanded="false" onclick="toggleSettingsGroup('grpVehicule')">
+            <span class="settings-group-title">Véhicule</span>
+            <span class="settings-group-summary" id="sumVehicule"></span>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="settings-group-body" hidden>
+<div class="batt-grid">
+              <label>Capacité utile (kWh)<input type="number" inputmode="decimal" step="0.5" min="0" id="battKwhInput" class="input-field" oninput="onBattChange()"></label>
+              <label>Conso (kWh/100 km)<input type="number" inputmode="decimal" step="0.5" min="0" id="consoDefInput" class="input-field" value="18" oninput="onBattChange()"></label>
+              <label title="Puissance moyenne de recharge entre 10 et 80 %">Recharge moy. (kW)<input type="number" inputmode="decimal" step="5" min="0" id="pChargeInput" class="input-field" oninput="onBattChange()"></label>
+            </div>
+          </div>
+        </div>
+        <div class="settings-group" id="grpStrategie">
+          <button type="button" class="settings-group-head" aria-expanded="false" onclick="toggleSettingsGroup('grpStrategie')">
+            <span class="settings-group-title">Stratégie de recharge</span>
+            <span class="settings-group-summary" id="sumStrategie"></span>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="settings-group-body" hidden>
+<div class="batt-grid">
+              <label>SoC cible (%)<input type="number" inputmode="decimal" step="5" min="20" max="100" id="socCibleInput" class="input-field" value="80" oninput="onBattChange()"></label>
+              <label>Réserve à l'arrivée (%)<input type="number" inputmode="decimal" step="1" min="0" max="50" id="socReserveInput" class="input-field" value="10" oninput="onBattChange()"></label>
+            </div>
+            <div class="settings-section-label">Mode de charge</div>
+            <div class="segmented" id="planAutoSegmented">
+              <button type="button" class="segmented-btn active" data-planauto="1" onclick="setPlanAuto(1)">Auto</button>
+              <button type="button" class="segmented-btn" data-planauto="0" onclick="setPlanAuto(0)">Fixe</button>
+            </div>
+            <p class="settings-hint">Auto : charge juste assez pour atteindre la suite. Fixe : charge toujours jusqu'à la cible.</p>
+            <div class="settings-actions single">
+              <button type="button" class="btn-tool-wide" onclick="suggestStopsUI()">⚡ Suggérer les arrêts</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-group" id="grpTemps">
+          <button type="button" class="settings-group-head" aria-expanded="false" onclick="toggleSettingsGroup('grpTemps')">
+            <span class="settings-group-title">Temps et vitesse</span>
+            <span class="settings-group-summary" id="sumTemps"></span>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="settings-group-body" hidden>
+<div class="settings-section-label">Vitesse par défaut (si la trace n'a pas de durée)</div>
           <div class="segmented" id="avgSpeedSegmented">
             <button type="button" class="segmented-btn" data-avgspeed="70" onclick="setAvgSpeed(70)">70</button>
             <button type="button" class="segmented-btn active" data-avgspeed="90" onclick="setAvgSpeed(90)">90</button>
             <button type="button" class="segmented-btn" data-avgspeed="110" onclick="setAvgSpeed(110)">110</button>
             <button type="button" class="segmented-btn" data-avgspeed="130" onclick="setAvgSpeed(130)">130 km/h</button>
           </div>
-        </div>
 
-        <div class="settings-tools-row" id="settingsToolsRow" hidden>
-          <button class="btn-tool-wide" onclick="handleInlineImportClick()">
+            <div class="batt-grid" style="margin-top:10px;">
+              <label>Temps par arrêt (min)<input type="number" inputmode="decimal" step="1" min="0" id="stopMinInput" class="input-field" value="4" oninput="onBattChange()"></label>
+              <label>Vitesse sur détour (km/h)<input type="number" inputmode="decimal" step="5" min="10" id="detourKmhInput" class="input-field" value="50" oninput="onBattChange()"></label>
+              <label title="Pénalité (en minutes) pour les sites de 1 à 2 points de charge, utilisée pour choisir les arrêts">Petits sites (+min)<input type="number" inputmode="decimal" step="1" min="0" id="smallSiteInput" class="input-field" value="3" oninput="onBattChange()"></label>
+            </div>
+          </div>
+        </div>
+        <div class="settings-group" id="grpSuivi">
+          <button type="button" class="settings-group-head" aria-expanded="false" onclick="toggleSettingsGroup('grpSuivi')">
+            <span class="settings-group-title">Suivi en route</span>
+            <span class="settings-group-summary" id="sumSuivi"></span>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="settings-group-body" hidden>
+<div class="settings-hint">Ajustez le SoC avec le bandeau en haut des réglages, puis touchez la valeur centrale pour enregistrer le relevé au kilomètre courant.</div>
+            <div class="batt-status" id="battStatus"></div>
+            <div class="settings-actions single">
+              <button type="button" class="btn-tool-wide" onclick="resetSocReadings()">Réinitialiser les relevés</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-group" id="grpDonnees">
+          <button type="button" class="settings-group-head" aria-expanded="false" onclick="toggleSettingsGroup('grpDonnees')">
+            <span class="settings-group-title">Données et outils</span>
+            <span class="settings-group-summary" id="sumDonnees"></span>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="settings-group-body" hidden>
+<div class="settings-actions single">
+              <button type="button" class="btn-tool-wide" onclick="exportItinerary()">Exporter (JSON)</button>
+            </div>
+            <div class="settings-actions" id="settingsToolsRow" hidden>
+              <button class="btn-tool-wide" onclick="handleInlineImportClick()">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
             Importer
           </button>
@@ -506,6 +608,8 @@
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3h6l5 5v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4z"/><path d="M9 12h6M9 16h6M9 8h2"/></svg>
             Logs
           </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -672,6 +776,7 @@ let tripPlaces = { end: '', loaded: false };      // commune d'arrivée (module 
    localStorage (même mécanique que GeoRouter : sauvegarderReglages/restaurerReglages,
    appelées à chaque changement / une fois au démarrage). --- */
 const REGLAGES_KEY = 'roadbook_reglages';
+let groupeOuvert = 'grpFiltres'; // section ouverte du panneau réglages ('' = toutes repliées), persistée
 let PUISSANCE_MIN_KW = 150;
 let RAYON_RECHERCHE_KM = 3;
 let KM_MIN_DEPART = 5;
@@ -684,6 +789,7 @@ const EMPTY_STATE_HTML = document.getElementById('stationsContainer').innerHTML;
 let BATT_KWH = 0;              // capacité utile (persistée)
 let CONSO_DEFAUT = 18;         // kWh/100 km, repli tant qu'aucune mesure fiable (persistée)
 let socReadings = [];          // [{soc, km}] croissants en km
+let socUndo = null;            // état {readings, consoCalib} juste avant le dernier relevé, pour l'annuler
 let consoCalib = null;         // dernière conso mesurée (conservée après une recharge)
 const SOC_MARGE = 1.05;        // marge de sécurité sur la conso
 const CONSO_MIN_KM = 15;       // distance mini entre relevés pour calculer une conso
@@ -717,13 +823,15 @@ function sauvegarderReglages() {
         planAuto: PLAN_AUTO,
         stopMin: STOP_OVERHEAD_MIN,
         detourKmh: DETOUR_KMH,
-        petitSiteMin: SMALL_SITE_MIN
+        petitSiteMin: SMALL_SITE_MIN,
+        groupeOuvert: groupeOuvert
     };
     try {
         localStorage.setItem(REGLAGES_KEY, JSON.stringify(reglages));
     } catch (err) {
         log("RÉGLAGES", "Échec de sauvegarde : " + err.message, true);
     }
+    updateGroupSummaries();
 }
 
 function restaurerReglages() {
@@ -749,6 +857,7 @@ function restaurerReglages() {
     if (typeof reglages.stopMin === 'number') { STOP_OVERHEAD_MIN = reglages.stopMin; document.getElementById('stopMinInput').value = STOP_OVERHEAD_MIN; }
     if (typeof reglages.detourKmh === 'number' && reglages.detourKmh > 0) { DETOUR_KMH = reglages.detourKmh; document.getElementById('detourKmhInput').value = DETOUR_KMH; }
     if (typeof reglages.petitSiteMin === 'number') { SMALL_SITE_MIN = reglages.petitSiteMin; document.getElementById('smallSiteInput').value = SMALL_SITE_MIN; }
+    if (typeof reglages.groupeOuvert === 'string') setSettingsGroup(reglages.groupeOuvert);
     updateBattStatus();
     if (typeof reglages.etapesSeules === 'boolean') setStageOnly(reglages.etapesSeules ? 1 : 0);
     log("RÉGLAGES", "Réglages restaurés depuis la dernière session.");
@@ -804,11 +913,12 @@ function updateOperatorVisibility() {
 }
 
 function toggleSettingsPanel(e) {
-    e.stopPropagation();
+    if (e) e.stopPropagation();
     settingsExpanded = !settingsExpanded;
     document.getElementById('settingsPanel').hidden = !settingsExpanded;
     document.getElementById('settingsToggleBtn').classList.toggle('tool-active', settingsExpanded);
     if (settingsExpanded && (sheetState === 'low' || sheetState === 'hidden')) setSheetState('mid');
+    if (settingsExpanded && groupeOuvert === 'grpSuivi') prefillSoc();
 }
 
 function closeSettingsPanel() {
@@ -817,11 +927,37 @@ function closeSettingsPanel() {
     document.getElementById('settingsToggleBtn').classList.remove('tool-active');
 }
 
-let advancedSettingsExpanded = false;
-function toggleAdvancedSettings() {
-    advancedSettingsExpanded = !advancedSettingsExpanded;
-    document.getElementById('advancedSettingsBody').hidden = !advancedSettingsExpanded;
-    document.getElementById('advancedToggleRow').classList.toggle('open', advancedSettingsExpanded);
+/* --- Sections thématiques : accordéon (une seule ouverte à la fois, '' = toutes repliées) --- */
+function setSettingsGroup(id) {
+    groupeOuvert = id || '';
+    document.querySelectorAll('.settings-group').forEach(g => {
+        const open = (g.id === groupeOuvert);
+        g.classList.toggle('open', open);
+        g.querySelector('.settings-group-body').hidden = !open;
+        g.querySelector('.settings-group-head').setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    if (groupeOuvert === 'grpSuivi') prefillSoc();
+    sauvegarderReglages();
+}
+function toggleSettingsGroup(id) {
+    setSettingsGroup(groupeOuvert === id ? '' : id);
+}
+// Ouvre le panneau réglages directement sur une section (ex. depuis la barre SoC).
+function openSettingsGroup(id) {
+    if (!settingsExpanded) toggleSettingsPanel();
+    setSettingsGroup(id);
+    const g = document.getElementById(id);
+    if (g) g.scrollIntoView({ block: 'nearest' });
+}
+// Résumé affiché sur la ligne d'une section repliée.
+function updateGroupSummaries() {
+    const set = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+    set('sumFiltres', PUISSANCE_MIN_KW + ' kW · ' + RAYON_RECHERCHE_KM + ' km' + (STAGE_ONLY ? ' · étapes' : ''));
+    set('sumVehicule', BATT_KWH ? BATT_KWH + ' kWh · ' + CONSO_DEFAUT + ' /100 km' : 'À renseigner');
+    set('sumStrategie', (PLAN_AUTO ? 'Auto' : 'Fixe') + ' · cible ' + SOC_CIBLE + ' % · réserve ' + SOC_RESERVE + ' %');
+    set('sumTemps', AVG_SPEED_KMH + ' km/h · ' + STOP_OVERHEAD_MIN + ' min/arrêt');
+    const last = socReadings[socReadings.length - 1];
+    set('sumSuivi', last ? Math.round(last.soc) + ' % au km ' + last.km.toFixed(0) : 'Aucun relevé');
 }
 
 function updateSegmentedActive(containerId, dataAttr, val) {
@@ -1716,6 +1852,8 @@ function socPillFromValue(v) {
     return `<div class="soc-pill ${cls}">${r < 0 ? '\u2212' + Math.abs(r) : r} %</div>`;
 }
 function updateBattStatus(msg) {
+    updateSocBar();
+    updateGroupSummaries();
     const el = document.getElementById('battStatus');
     if (!el) return;
     if (msg) { el.textContent = msg; return; }
@@ -1736,10 +1874,11 @@ function onBattChange() {
     updateBattStatus();
     renderList();
 }
-function addSocReading() {
-    const soc = parseFloat(document.getElementById('socInput').value);
-    if (!BATT_KWH) { updateBattStatus('Renseignez d\'abord la capacité utile.'); return; }
-    if (isNaN(soc) || soc < 0 || soc > 100) { updateBattStatus('SoC invalide (0 à 100).'); return; }
+// Enregistre un relevé de SoC au km courant. Retourne un message d'erreur, ou null si tout s'est bien passé.
+function recordSoc(soc) {
+    if (!BATT_KWH) return "Renseignez d'abord la capacité utile.";
+    if (isNaN(soc) || soc < 0 || soc > 100) return 'SoC invalide (0 à 100).';
+    socUndo = { readings: socReadings.slice(), consoCalib: consoCalib };
     const km = positionKm;
     // Retour en arrière ou même km : on écarte les relevés postérieurs ou égaux.
     socReadings = socReadings.filter(r => r.km < km);
@@ -1753,6 +1892,74 @@ function addSocReading() {
     log("SOC", `Relevé ${soc} % au km ${km.toFixed(1)} · conso ${currentConso().toFixed(1)} kWh/100 km`);
     updateBattStatus();
     renderList(positionKm);
+    prefillSoc();
+    return null;
+}
+// Bouton « Relever le SoC ici » (champ de saisie du menu, pour corriger à l'arrêt).
+function addSocReading() {
+    const err = recordSoc(parseFloat(document.getElementById('socInput').value));
+    if (err) updateBattStatus(err);
+}
+// Barre SoC : les boutons ajustent la valeur ; le bouton central valide le relevé.
+function stepSocBar(delta) {
+    stepSoc(delta);
+}
+function validateSocBar() {
+    const btn = document.getElementById('socBarValidate');
+    addSocReading();
+    if (btn) {
+        btn.classList.add('flash');
+        setTimeout(() => btn.classList.remove('flash'), 700);
+    }
+}
+function undoLastSocReading() {
+    if (!socUndo) return;
+    socReadings = socUndo.readings;
+    consoCalib = socUndo.consoCalib;
+    socUndo = null;
+    log("SOC", "Dernier relevé annulé.");
+    updateBattStatus();
+    renderList(positionKm);
+}
+// Valeur proposée dans le champ SoC : la prévision au km courant (si un relevé existe déjà).
+function prefillSoc() {
+    const el = document.getElementById('socInput');
+    if (!el || document.activeElement === el) return;
+    const v = predictSoc(positionKm, 0);
+    if (v !== null) el.value = Math.max(0, Math.min(100, Math.round(v)));
+}
+function stepSoc(d) {
+    const el = document.getElementById('socInput');
+    let cur = parseFloat(el.value);
+    if (isNaN(cur)) { const v = predictSoc(positionKm, 0); cur = v !== null ? v : 50; }
+    el.value = Math.max(0, Math.min(100, Math.round(cur + d)));
+    updateSocBar();
+}
+// Barre SoC épinglée : raccourcis si la batterie est renseignée, sinon invitation à la renseigner.
+function updateSocBar() {
+    const bar = document.getElementById('socBar');
+    if (!bar) return;
+    const ok = BATT_KWH > 0;
+    document.getElementById('socBarQuick').hidden = !ok;
+    document.getElementById('socBarStatus').hidden = !ok;
+    document.getElementById('socBarSetup').hidden = ok;
+    if (ok) {
+        const input = document.getElementById('socInput');
+        let current = input ? parseFloat(input.value) : NaN;
+        if (!Number.isFinite(current)) {
+            const predicted = predictSoc(positionKm, 0);
+            current = predicted !== null ? Math.round(predicted) : 50;
+        }
+        current = Math.max(0, Math.min(100, Math.round(current)));
+        if (input) input.value = current;
+        document.getElementById('socBarValue').textContent = current + '%';
+
+        const last = socReadings[socReadings.length - 1];
+        document.getElementById('socBarStatusText').innerHTML = last
+            ? '<b>' + Math.round(last.soc) + ' %</b> relevé au km ' + last.km.toFixed(0)
+            : 'Aucun relevé · km ' + Math.round(positionKm);
+        document.getElementById('socUndoBtn').hidden = !socUndo;
+    }
 }
 function setPlanAuto(v) {
     PLAN_AUTO = !!v;
@@ -1761,6 +1968,7 @@ function setPlanAuto(v) {
     renderList();
 }
 function resetSocReadings() {
+    socUndo = null;
     socReadings = [];
     consoCalib = null;
     updateBattStatus();
@@ -2065,7 +2273,7 @@ function processTraceContent(content, filename) {
     importedStops = [];
     importedRaw = null;
     traceHasTime = false;
-    socReadings = []; consoCalib = null; updateBattStatus();
+    socReadings = []; consoCalib = null; socUndo = null; updateBattStatus();
     globalData = []; // les stations de la trace précédente (km/étapes) ne doivent pas survivre
 
     if (filename.endsWith('.json') || filename.endsWith('.geojson') || content.trim().startsWith('{')) {
@@ -2737,6 +2945,7 @@ function renderList(kmOverride) {
         kmFilter = (Math.round(positionKm) === v) ? positionKm : v;
     }
     positionKm = kmFilter;
+    updateSocBar();
 
     if (!gpxPoints.length) { // pas de trace : on garde l'écran d'import
         const box = document.getElementById('stationsContainer');
