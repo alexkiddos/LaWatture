@@ -358,6 +358,16 @@
       .st-popup .pp-btn { height: 40px; border-radius: 8px; border: 1px solid #C3C4CB; background: #EEF0F3; color: #111114; font-family: inherit; font-size: 12px; font-weight: 700; padding: 0 6px; cursor: pointer; white-space: nowrap; }
       .st-popup .pp-btn-main { background: #0B72E7; border-color: #0B72E7; color: #fff; }
 
+      .st-popup .pp-charge { margin-top: 5px; padding-top: 5px; border-top: 1px solid #E3E4E8; font-size: 12px; font-weight: 600; }
+      .st-popup .pp-charge .pp-soc { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 13px; }
+      .st-popup .pp-charge .pp-sub { color: #6B6B72; font-size: 11.5px; margin-top: 1px; }
+      .st-popup .tn-edit { margin-top: 5px; color: #111114; }
+      .st-popup .arr-stepper { border-color: #C3C4CB; background: #fff; }
+      .st-popup .arr-stepper button:active { background: #E3E4E8; }
+      .st-popup .arr-stepper input { border-color: #C3C4CB; }
+      .st-popup .arr-stepper.manual { border-color: #0B72E7; }
+      .st-popup .arr-stepper.manual input, .st-popup .arr-reset { color: #0B72E7; }
+
       /* --- Module Trajet : vue d'ensemble + détail de l'itinéraire --- */
       .trip-node { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line-strong); background: var(--card-bg); border-radius: 12px; padding: 9px 10px; cursor: pointer; }
       .trip-node.passed { opacity: 0.5; }
@@ -368,6 +378,21 @@
       .trip-node.is-stage .tn-title { color: var(--op-color); }
       .tn-sub { font-size: 12px; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
       .tn-right { text-align: right; flex-shrink: 0; }
+      /* Épingles départ / arrivée de la trace */
+      .trace-pin { background: none; border: none; }
+      .trace-pin svg { display: block; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.35)); }
+      /* Réglage du SoC d'arrivée (étapes + destination) dans la liste Trajet */
+      .tn-edit { display: flex; align-items: center; gap: 6px; margin-top: 5px; font-size: 12px; flex-wrap: wrap; }
+      .tn-edit-label { opacity: 0.85; font-weight: 600; }
+      .arr-stepper { display: inline-flex; align-items: center; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; background: var(--card-bg); }
+      .arr-stepper button { width: 30px; height: 30px; border: none; background: transparent; color: inherit; font-size: 16px; font-weight: 700; cursor: pointer; padding: 0; }
+      .arr-stepper button:active { background: var(--line-strong); }
+      .arr-stepper input { width: 44px; height: 30px; border: none; border-left: 1px solid var(--line-strong); border-right: 1px solid var(--line-strong); text-align: center; font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; background: transparent; color: inherit; border-radius: 0; padding: 0; -moz-appearance: textfield; }
+      .arr-stepper input::-webkit-outer-spin-button, .arr-stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+      .arr-stepper.manual { border-color: var(--accent); }
+      .arr-stepper.manual input { color: var(--accent); }
+      .arr-reset { border: none; background: transparent; color: var(--accent); font-size: 16px; font-weight: 700; cursor: pointer; padding: 2px 6px; }
+      .arr-warn { color: #d97706; font-weight: 600; }
       .tn-km { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; white-space: nowrap; }
       .tn-time { font-size: 11px; color: var(--muted); font-weight: 600; white-space: nowrap; }
       .trip-leg { margin-left: 22px; padding: 4px 0 4px 14px; border-left: 2px dashed var(--line-strong); font-size: 11.5px; font-weight: 600; color: var(--muted); }
@@ -540,7 +565,8 @@
           <div class="settings-group-body" hidden>
 <div class="batt-grid">
               <label>SoC cible (%)<input type="number" inputmode="decimal" step="5" min="20" max="100" id="socCibleInput" class="input-field" value="80" oninput="onBattChange()"></label>
-              <label>Réserve à l'arrivée (%)<input type="number" inputmode="decimal" step="1" min="0" max="50" id="socReserveInput" class="input-field" value="10" oninput="onBattChange()"></label>
+              <label title="SoC minimal visé à l'arrivée à chaque borne (la fin de charge se règle étape par étape dans l'étiquette de l'étape sur la carte)">Arrivée aux arrêts (%)<input type="number" inputmode="decimal" step="1" min="0" max="50" id="socReserveInput" class="input-field" value="10" oninput="onBattChange()"></label>
+              <label title="SoC visé à l'arrivée à destination">Arrivée à destination (%)<input type="number" inputmode="decimal" step="1" min="0" max="100" id="socArrDestInput" class="input-field" value="10" oninput="onBattChange()"></label>
             </div>
             <div class="settings-section-label">Mode de charge</div>
             <div class="segmented" id="planAutoSegmented">
@@ -760,10 +786,14 @@ let currentViewMode = 'STATIONS';
 
 /* --- Étapes (stations choisies comme étapes), bandeau distance/temps --- */
 const ETAPES_KEY = 'roadbook_etapes';
+const ETAPES_DEP_KEY = 'roadbook_etapes_dep';
 let importedStops = [];        // étapes reçues de GeoRouter, à rapprocher des stations IRVE
 let importedRaw = null;        // dernier JSON importé (format commun GeoRouter/Roadbook), réutilisé tel quel à l'export
 let stageIds = new Set();      // ids stables (String) des stations choisies pour la trace courante
 let stageOrder = new Map();    // id -> numéro d'étape (1, 2, ...) dans l'ordre du trajet
+let stageDep = {};             // id -> SoC de FIN DE CHARGE voulu (%) saisi à la main pour cette étape (sinon calcul automatique)
+let stageDepBeforeSuggestion = null;
+let gpxPinStart = null, gpxPinEnd = null;   // épingles départ / arrivée
 let currentTraceKey = '';
 let STAGE_ONLY = false;        // "Étapes seules"
 let AVG_SPEED_KMH = 90;        // utilisée seulement si la trace n'a pas de durée
@@ -797,7 +827,8 @@ const CONSO_WINDOW = 4;        // nb de relevés récents pris en compte
 const SOC_WARN = 20, SOC_ALERT = 10;
 let P_CHARGE_KW = 0;           // puissance moyenne de recharge sur 10→80 % (persistée)
 let SOC_CIBLE = 80;            // SoC de départ de borne en mode Fixe / plafond en mode Auto
-let SOC_RESERVE = 10;          // SoC mini souhaité aux étapes et à l'arrivée
+let SOC_RESERVE = 10;          // SoC visé à l'arrivée à chaque borne (valeur par défaut, modifiable par étape)
+let SOC_ARR_DEST = 10;         // SoC visé à l'arrivée à destination
 let PLAN_AUTO = true;          // Auto : charge minimale pour atteindre la suite ; Fixe : toujours SOC_CIBLE
 const CHARGE_EFF = 0.85;       // plafond : fraction de la puissance de la borne réellement utilisable
 const TAIL_FACTOR = 0.4;       // au-dessus de 80 %, puissance = P × TAIL_FACTOR
@@ -820,6 +851,7 @@ function sauvegarderReglages() {
         pCharge: P_CHARGE_KW,
         socCible: SOC_CIBLE,
         socReserve: SOC_RESERVE,
+        socArrDest: SOC_ARR_DEST,
         planAuto: PLAN_AUTO,
         stopMin: STOP_OVERHEAD_MIN,
         detourKmh: DETOUR_KMH,
@@ -853,6 +885,9 @@ function restaurerReglages() {
     if (typeof reglages.pCharge === 'number') { P_CHARGE_KW = reglages.pCharge; document.getElementById('pChargeInput').value = P_CHARGE_KW || ''; }
     if (typeof reglages.socCible === 'number') { SOC_CIBLE = reglages.socCible; document.getElementById('socCibleInput').value = SOC_CIBLE; }
     if (typeof reglages.socReserve === 'number') { SOC_RESERVE = reglages.socReserve; document.getElementById('socReserveInput').value = SOC_RESERVE; }
+    // Réglages enregistrés avant l'ajout de « Arrivée à destination » : on reprend l'ancienne réserve.
+    SOC_ARR_DEST = (typeof reglages.socArrDest === 'number') ? reglages.socArrDest : SOC_RESERVE;
+    document.getElementById('socArrDestInput').value = SOC_ARR_DEST;
     if (typeof reglages.planAuto === 'boolean') { PLAN_AUTO = reglages.planAuto; updateSegmentedActive('planAutoSegmented', 'planauto', PLAN_AUTO ? 1 : 0); }
     if (typeof reglages.stopMin === 'number') { STOP_OVERHEAD_MIN = reglages.stopMin; document.getElementById('stopMinInput').value = STOP_OVERHEAD_MIN; }
     if (typeof reglages.detourKmh === 'number' && reglages.detourKmh > 0) { DETOUR_KMH = reglages.detourKmh; document.getElementById('detourKmhInput').value = DETOUR_KMH; }
@@ -954,7 +989,7 @@ function updateGroupSummaries() {
     const set = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
     set('sumFiltres', PUISSANCE_MIN_KW + ' kW · ' + RAYON_RECHERCHE_KM + ' km' + (STAGE_ONLY ? ' · étapes' : ''));
     set('sumVehicule', BATT_KWH ? BATT_KWH + ' kWh · ' + CONSO_DEFAUT + ' /100 km' : 'À renseigner');
-    set('sumStrategie', (PLAN_AUTO ? 'Auto' : 'Fixe') + ' · cible ' + SOC_CIBLE + ' % · réserve ' + SOC_RESERVE + ' %');
+    set('sumStrategie', (PLAN_AUTO ? 'Auto' : 'Fixe') + ' · cible ' + SOC_CIBLE + ' % · arrivée ' + SOC_RESERVE + ' % (arrêts) / ' + SOC_ARR_DEST + ' % (dest.)');
     set('sumTemps', AVG_SPEED_KMH + ' km/h · ' + STOP_OVERHEAD_MIN + ' min/arrêt');
     const last = socReadings[socReadings.length - 1];
     set('sumSuivi', last ? Math.round(last.soc) + ' % au km ' + last.km.toFixed(0) : 'Aucun relevé');
@@ -1819,13 +1854,18 @@ function computePlan() {
         const socArr = soc - dist * c;
         const next = stages[i + 1];
         const nextD = next ? (next.km - s.km) + s.detour + next.detour : (endKm - s.km) + s.detour;
-        const need = Math.ceil(SOC_RESERVE + nextD * c);
-        const socDep = Math.max(socArr, PLAN_AUTO ? Math.min(need, SOC_CIBLE) : SOC_CIBLE);
+        // SoC visé à l'arrivée suivante : réglage « arrêts » ; réglage « destination » pour la dernière.
+        const nextTarget = next ? SOC_RESERVE : SOC_ARR_DEST;
+        const need = Math.ceil(nextTarget + nextD * c);
+        // Fin de charge saisie à la main : suivie à la lettre (jusqu'à 100 %), quel que soit le mode.
+        const depManual = stageDep[String(s.id)] !== undefined;
+        const socDep = depManual ? Math.max(socArr, Math.min(stageDep[String(s.id)], 100))
+                                 : Math.max(socArr, PLAN_AUTO ? Math.min(need, SOC_CIBLE) : SOC_CIBLE);
         const oneWayMs = detourMs(s);
         t += travelMs(km, s.km) + oneWayMs;                 // arrivée à la borne (détour aller compris)
         const chMs = chargeDurationMs(socArr, socDep, s.pwr);
         const extraMs = STOP_OVERHEAD_MIN * 60000 + 2 * oneWayMs;   // temps fixe + détour aller/retour
-        nodes.push({ s, km: s.km, distFromPrev: dist, socArr, socDep, chargeMs: chMs, extraMs, arriveMs: t, departMs: t + chMs + oneWayMs + STOP_OVERHEAD_MIN * 60000 });
+        nodes.push({ s, km: s.km, distFromPrev: dist, socArr, socDep, depManual, nextTarget, nextD, chargeMs: chMs, extraMs, arriveMs: t, departMs: t + chMs + oneWayMs + STOP_OVERHEAD_MIN * 60000 });
         t += chMs + STOP_OVERHEAD_MIN * 60000 + oneWayMs;   // temps fixe, charge, puis détour retour
         km = s.km; soc = socDep; backDetour = s.detour;
     });
@@ -1866,6 +1906,7 @@ function onBattChange() {
     P_CHARGE_KW = parseFloat(document.getElementById('pChargeInput').value) || 0;
     SOC_CIBLE = Math.min(100, Math.max(20, parseFloat(document.getElementById('socCibleInput').value) || 80));
     SOC_RESERVE = Math.max(0, parseFloat(document.getElementById('socReserveInput').value) || 0);
+    SOC_ARR_DEST = Math.min(100, Math.max(0, parseFloat(document.getElementById('socArrDestInput').value) || 0));
     const num = (id, def, min) => { const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? def : Math.max(min, v); };
     STOP_OVERHEAD_MIN = num('stopMinInput', 4, 0);
     DETOUR_KMH = num('detourKmhInput', 50, 10);
@@ -1996,6 +2037,7 @@ function exportItineraryInner() {
             station: { id: String(s.id), name: s.nom, operator: s.op, commune: s.commune, lat: s.lat, lon: s.lng, powerKw: s.pwr },
             arrivalSocPct: n ? r1(n.socArr) : null,
             departureSocPct: n ? r1(n.socDep) : null,
+            departureManual: n ? !!n.depManual : false,
             chargeMinutes: n ? Math.round(n.chargeMs / 60000) : null,
             overheadAndDetourMinutes: n ? Math.round(n.extraMs / 60000) : null,
             arrivalInMinutes: n ? Math.round(n.arriveMs / 60000) : null
@@ -2047,7 +2089,7 @@ function exportItineraryInner() {
                 batteryUsableKwh: BATT_KWH || null,
                 consumptionKwhPer100km: r1(currentConso()), safetyMargin: SOC_MARGE, stopOverheadMin: STOP_OVERHEAD_MIN, detourKmh: DETOUR_KMH,
                 chargePowerAvg10to80Kw: P_CHARGE_KW || null,
-                targetSocPct: SOC_CIBLE, reserveSocPct: SOC_RESERVE, chargeMode: PLAN_AUTO ? 'auto' : 'fixed'
+                targetSocPct: SOC_CIBLE, reserveSocPct: SOC_RESERVE, arrivalStopSocPct: SOC_RESERVE, arrivalDestinationSocPct: SOC_ARR_DEST, chargeMode: PLAN_AUTO ? 'auto' : 'fixed'
             },
             position: { kmFromStart: r1(positionKm), socPct: plan ? r1(plan.startSoc) : null },
             steps,
@@ -2136,7 +2178,8 @@ function stopCostMs(n, socArr, socDep) {
 }
 
 // Retourne { ids, costMs } (ids dans l'ordre du trajet, éventuellement vide) ou null si aucun plan n'atteint l'arrivée avec la réserve R.
-function optimizeStops(soc0, R) {
+function optimizeStops(soc0, R, Rend) {
+    if (Rend === undefined) Rend = R;
     const c = currentConso() * SOC_MARGE / BATT_KWH;       // % de batterie par km
     const endKm = gpxPoints[gpxPoints.length - 1].km;
     const cand = globalData.filter(s => s.km > positionKm && s.km < endKm && s.dispo !== 0 && s.pwr > 0);
@@ -2154,11 +2197,11 @@ function optimizeStops(soc0, R) {
                 const d = (nj.km - ni.km) + ni.detour + nj.detour;
                 let dep = st.a;
                 if (i > 0) {
-                    const need = Math.ceil(R + d * c);
+                    const need = Math.ceil((j === last ? Rend : R) + d * c);
                     dep = Math.max(st.a, PLAN_AUTO ? Math.min(need, SOC_CIBLE) : SOC_CIBLE);
                 }
                 const arr = dep - d * c;
-                if (arr < R - 1e-9) continue;
+                if (arr < (j === last ? Rend : R) - 1e-9) continue;
                 const cost = st.cost + (i > 0 ? stopCostMs(ni, st.a, dep) : 0);
                 const k = j === last ? 'e' : String(Math.round(arr));
                 const ex = states[j].get(k);
@@ -2186,7 +2229,9 @@ function undoSuggestion() {
     if (!stagesBeforeSuggestion) return;
     stageIds = new Set(stagesBeforeSuggestion);
     stagesBeforeSuggestion = null;
-    saveStages(); renderList();
+    if (stageDepBeforeSuggestion) stageDep = stageDepBeforeSuggestion;
+    stageDepBeforeSuggestion = null;
+    saveStages(); saveStageDep(); renderList();
     updateBattStatus('Suggestion annulée : étapes précédentes rétablies.');
     log("ÉTAPES", "Suggestion annulée.");
 }
@@ -2200,8 +2245,8 @@ function suggestStopsUI() {
         if (soc0 === null) { updateBattStatus('Relevez d\'abord le SoC (« Relever le SoC ici ») pour partir de votre position.'); return; }
 
         let relaxed = false;
-        let res = optimizeStops(soc0, SOC_RESERVE);
-        if (!res && SOC_RESERVE > 0) { res = optimizeStops(soc0, 0); relaxed = !!res; }
+        let res = optimizeStops(soc0, SOC_RESERVE, SOC_ARR_DEST);
+        if (!res && (SOC_RESERVE > 0 || SOC_ARR_DEST > 0)) { res = optimizeStops(soc0, 0, 0); relaxed = !!res; }
         if (!res) {
             updateBattStatus('Aucun enchaînement de stations ne permet d\'atteindre l\'arrivée avec ce SoC et cette autonomie (trou dans les bornes ?). Élargissez le rayon de recherche ou baissez la puissance minimale.');
             return;
@@ -2211,9 +2256,12 @@ function suggestStopsUI() {
         const beforeMs = (before && stageStations().some(s => s.km >= positionKm)) ? before.endMs : null;
 
         stagesBeforeSuggestion = new Set(stageIds);
+        stageDepBeforeSuggestion = Object.assign({}, stageDep);
         const keep = [...stageIds].filter(id => { const s = getStation(id); return s && s.km < positionKm; });  // étapes déjà derrière nous
         stageIds = new Set([...keep, ...res.ids]);
-        saveStages(); renderList();
+        // Nouvelle sélection automatique : les fins de charge repartent du calcul automatique (modifiables ensuite étape par étape).
+        stageDep = {};
+        saveStages(); saveStageDep(); renderList();
 
         const plan = computePlan();
         const n = res.ids.length;
@@ -2227,7 +2275,7 @@ function suggestStopsUI() {
                 msg += diff > 0 ? ` · ${diff} min gagnées vs vos étapes` : (diff < 0 ? ` · ${-diff} min de plus que vos étapes` : ' · même durée que vos étapes');
             }
         }
-        if (relaxed) msg += ` · ⚠ réserve de ${SOC_RESERVE} % impossible à tenir sur tout le trajet`;
+        if (relaxed) msg += ` · ⚠ arrivées à ${SOC_RESERVE} % (arrêts) / ${SOC_ARR_DEST} % (destination) impossibles à tenir sur tout le trajet`;
         log("ÉTAPES", msg);
         setBattStatusHtml(msg.replace(/&/g, '&amp;').replace(/</g, '&lt;') + ' <a href="#" id="undoSuggestLink" style="text-decoration:underline;">Annuler</a>');
         const l = document.getElementById('undoSuggestLink');
@@ -2301,16 +2349,24 @@ function processTraceContent(content, filename) {
     currentTraceKey = computeTraceKey(filename);
     currentTraceName = filename || '';
     loadStages();
+    loadStageDep();
     syncStationMarkers([]);
     resolveTripPlaces();
 
     if(gpxLineFuture) map.removeLayer(gpxLineFuture);
     if(gpxLinePast) map.removeLayer(gpxLinePast);
+    if(gpxPinStart) { map.removeLayer(gpxPinStart); gpxPinStart = null; }
+    if(gpxPinEnd) { map.removeLayer(gpxPinEnd); gpxPinEnd = null; }
 
     const allCoords = gpxPoints.map(p => [p.lat, p.lon]);
 
     gpxLineFuture = L.polyline(allCoords, {color: '#0B72E7', weight: 4, opacity: 1.0}).addTo(map);
     gpxLinePast = L.polyline([], {color: '#16a34a', weight: 4, opacity: 0.5}).addTo(map);
+
+    // Épingles de départ (verte) et d'arrivée (rouge, damier)
+    const pinFirst = gpxPoints[0], pinLast = gpxPoints[gpxPoints.length - 1];
+    gpxPinStart = makeTracePin(pinFirst, 'start').addTo(map);
+    gpxPinEnd = makeTracePin(pinLast, 'end').addTo(map);
 
     // Décalé d'un tick : au chargement initial (transmission GeoRouter via
     // localStorage notamment), le conteneur de la carte n'a pas encore fini
@@ -3109,6 +3165,56 @@ function saveStages() {
     }
 }
 
+function loadStageDep() {
+    stageDep = {};
+    try {
+        const all = JSON.parse(localStorage.getItem(ETAPES_DEP_KEY) || '{}');
+        const o = all && all[currentTraceKey];
+        if (o && typeof o === 'object') for (const k in o) if (typeof o[k] === 'number') stageDep[String(k)] = o[k];
+    } catch (err) { /* stockage indisponible */ }
+}
+function saveStageDep() {
+    try {
+        const all = JSON.parse(localStorage.getItem(ETAPES_DEP_KEY) || '{}') || {};
+        delete all[currentTraceKey];
+        for (const k of Object.keys(stageDep)) if (!stageIds.has(k)) delete stageDep[k];   // pas d'override orphelin
+        if (Object.keys(stageDep).length) all[currentTraceKey] = stageDep;
+        const keys = Object.keys(all);
+        while (keys.length > 15) delete all[keys.shift()];
+        localStorage.setItem(ETAPES_DEP_KEY, JSON.stringify(all));
+    } catch (err) {
+        log("ÉTAPES", "Échec de sauvegarde des SoC de fin de charge : " + err.message, true);
+    }
+}
+
+// --- Réglage du SoC de fin de charge depuis l'étiquette d'étape ---
+function clampPct(v, max) { return Math.min(max, Math.max(0, Math.round(v))); }
+function setStageDep(sid, val) {
+    const v = parseFloat(val);
+    if (isNaN(v)) { delete stageDep[sid]; } else { stageDep[sid] = clampPct(v, 100); }
+    saveStageDep();
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    renderList(); refreshOpenPopups();
+}
+function stepStageDep(sid, delta) {
+    const pn = (computePlan() || { nodes: [] }).nodes.find(n => String(n.s.id) === sid);
+    const cur = stageDep[sid] !== undefined ? stageDep[sid] : (pn ? Math.round(pn.socDep) : SOC_CIBLE);
+    setStageDep(sid, cur + delta);
+}
+function resetStageDep(sid) { delete stageDep[sid]; saveStageDep(); renderList(); refreshOpenPopups(); }
+function setDestArr(val) {
+    const v = parseFloat(val);
+    SOC_ARR_DEST = isNaN(v) ? SOC_ARR_DEST : clampPct(v, 100);
+    document.getElementById('socArrDestInput').value = SOC_ARR_DEST;
+    sauvegarderReglages(); updateGroupSummaries();
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    renderList(); refreshOpenPopups();
+}
+function stepDestArr(delta) {
+    const plan = computePlan();
+    setDestArr((plan ? Math.round(plan.endSoc) : SOC_ARR_DEST) + delta);
+}
+
 // Liste des stations-étapes (globalData est déjà triée par km).
 function stageStations() { return globalData.filter(s => stageIds.has(String(s.id))); }
 
@@ -3126,7 +3232,7 @@ function getStation(sid) {
 }
 
 function toggleStage(sid) {
-    if (stageIds.has(sid)) stageIds.delete(sid); else stageIds.add(sid);
+    if (stageIds.has(sid)) { stageIds.delete(sid); delete stageDep[sid]; saveStageDep(); } else stageIds.add(sid);
     saveStages();
     renderList();
 }
@@ -3170,6 +3276,21 @@ function travelMs(fromKm, toKm) { return Math.max(0, timeAtKm(toKm) - timeAtKm(f
 
 function stationColor(s) {
     return s.dispo === 0 ? '#dc2626' : (s.dispo <= s.total / 3 ? '#d97706' : '#16a34a');
+}
+
+function makeTracePin(pt, kind) {
+    const isEnd = kind === 'end';
+    const fill = isEnd ? '#dc2626' : '#16a34a';
+    const glyph = isEnd
+        ? '<rect x="9" y="9" width="6" height="6" fill="#111"/><rect x="15" y="15" width="6" height="6" fill="#111"/><rect x="15" y="9" width="6" height="6" fill="#fff"/><rect x="9" y="15" width="6" height="6" fill="#fff"/>'
+        : '<path d="M12 9.5v11l9-5.5z" fill="#fff"/>';
+    const html = `<svg viewBox="0 0 30 40" width="30" height="40" aria-hidden="true"><path d="M15 1C7.3 1 1 7.3 1 15c0 10.5 14 24 14 24s14-13.5 14-24C29 7.3 22.7 1 15 1z" fill="${fill}" stroke="#fff" stroke-width="2"/>${glyph}</svg>`;
+    const m = L.marker([pt.lat, pt.lon], {
+        icon: L.divIcon({ className: 'trace-pin', html, iconSize: [30, 40], iconAnchor: [15, 39], popupAnchor: [0, -36] }),
+        zIndexOffset: 1200, keyboard: false
+    });
+    m.bindPopup(() => isEnd ? buildEndPopup() : '<b>Départ</b>', { className: 'st-leaflet-popup', autoPanPadding: [12, 12] });
+    return m;
 }
 
 function makeStationIcon(color, n) {
@@ -3219,11 +3340,65 @@ function syncStationMarkers(list) {
             }
         }
         // Étiquette ouverte : on rafraîchit distance / temps / disponibilité en direct
-        if (m.isPopupOpen()) m.getPopup().setContent(buildStationPopup(sid));
+        if (m.isPopupOpen()) {
+            const pe = m.getPopup().getElement();
+            const typing = pe && pe.contains(document.activeElement) && document.activeElement.classList.contains('arr-input');
+            if (!typing) m.getPopup().setContent(buildStationPopup(sid));
+        }
     });
     for (const sid in markers) {
         if (!keep.has(sid)) { map.removeLayer(markers[sid]); delete markers[sid]; }
     }
+}
+
+// Réglage du SoC d'arrivée à destination (dans l'étiquette de l'épingle d'arrivée)
+function buildEndPopup() {
+    const plan = computePlan();
+    let extra = '';
+    if (plan) {
+        const warn = plan.endSoc < SOC_ARR_DEST - 1 ? `<span class="arr-warn">⚠ ${fmtSoc(plan.endSoc)} % atteignable</span>` : '';
+        extra = `<div class="tn-edit" onclick="event.stopPropagation()"><span class="tn-edit-label">Arrivée visée</span>`
+            + arrStepperHtml(SOC_ARR_DEST, false, d => `stepDestArr(${d})`, `setDestArr(this.value)`)
+            + `<span class="tn-edit-label">%</span>${warn}</div>`;
+    }
+    return `<div class="st-popup"><div class="pp-op"><span class="pp-op-name">Arrivée</span></div>`
+        + (tripPlaces.end ? `<div class="pp-name">${escapeHtml(tripPlaces.end)}</div>` : '') + extra + `</div>`;
+}
+
+// Infos de recharge + réglage du SoC d'arrivée d'une étape (étiquette de l'étape)
+function buildStageChargeHtml(sid) {
+    const plan = computePlan();
+    if (!plan) return '';
+    const pn = plan.nodes.find(n => String(n.s.id) === sid);
+    if (!pn) return '';
+    const planIdx = plan.nodes.indexOf(pn);
+    let h = `<div class="pp-charge"><div class="pp-soc">${fmtSoc(pn.socArr)} → ${fmtSoc(pn.socDep)} %</div>`;
+    const bits = [];
+    if (pn.chargeMs) bits.push('⚡ ' + formatDuration(pn.chargeMs));
+    if (pn.chargeMs || pn.extraMs) bits.push('arrêt ' + formatDuration(pn.chargeMs + pn.extraMs));
+    if (bits.length) h += `<div class="pp-sub">${bits.join(' · ')}</div>`;
+    // Fin de charge réglable ; l'arrivée à l'étape suivante (ou à destination) en découle.
+    const manual = pn.depManual;
+    const sidJs = escapeHtml(JSON.stringify(sid));
+    const nextSoc = plan.nodes[planIdx + 1] ? plan.nodes[planIdx + 1].socArr : plan.endSoc;
+    const warn = (manual && nextSoc < pn.nextTarget - 1) ? `<span class="arr-warn">⚠ arrivée suivante ${fmtSoc(nextSoc)} %</span>` : '';
+    h += `<div class="tn-edit" onclick="event.stopPropagation()"><span class="tn-edit-label">Fin de charge</span>`
+        + arrStepperHtml(Math.round(pn.socDep), manual, d => `stepStageDep(${sidJs}, ${d})`, `setStageDep(${sidJs}, this.value)`)
+        + `<span class="tn-edit-label">%</span>${manual ? `<button type="button" class="arr-reset" title="Revenir à l'automatique" onclick="resetStageDep(${sidJs})">↺</button>` : ''}${warn}</div>`;
+    return h + `</div>`;
+}
+
+// Rafraîchit les étiquettes ouvertes (sauf si un champ y est en cours de saisie)
+function refreshOpenPopups() {
+    if (!mapReady) return;
+    const upd = (m, fn) => {
+        if (!m || !m.isPopupOpen()) return;
+        const el = m.getPopup().getElement();
+        if (el && el.contains(document.activeElement) && document.activeElement.classList.contains('arr-input')) return;
+        m.getPopup().setContent(fn());
+    };
+    for (const sid in markers) upd(markers[sid], () => buildStationPopup(sid));
+    upd(gpxPinEnd, buildEndPopup);
 }
 
 function buildStationPopup(sid) {
@@ -3253,6 +3428,7 @@ function buildStationPopup(sid) {
             <a href="${searchMapsUrl}" target="_blank" rel="noopener noreferrer" title="Rechercher sur Google Maps" aria-label="Google Maps">🔍</a>
           </span>
         </div>
+        ${n ? buildStageChargeHtml(sid) : ''}
         <div class="pp-actions">
           <button type="button" class="pp-btn ${n ? '' : 'pp-btn-main'}" data-sid="${sidAttr}" onclick="toggleStageEl(this)">${n ? '✕ Retirer' : '⚡ Étape'}</button>
           <button type="button" class="pp-btn" data-sid="${sidAttr}" onclick="showInListEl(this)">📋 Liste</button>
@@ -3346,7 +3522,17 @@ async function resolveTripPlaces() {
 
 function focusPoint(lat, lon) { if (mapReady) map.setView([lat, lon], 13); }
 
+function arrStepperHtml(valueAttr, manual, onStep, onSet, extraCls) {
+    return `<span class="arr-stepper${manual ? ' manual' : ''}">`
+         + `<button type="button" aria-label="Diminuer" onclick="${onStep(-1)}">−</button>`
+         + `<input class="arr-input" type="number" inputmode="numeric" min="0" max="100" step="1" value="${valueAttr}" onchange="${onSet}" onclick="this.select()">`
+         + `<button type="button" aria-label="Augmenter" onclick="${onStep(1)}">+</button></span>`;
+}
+
 function renderTripList(kmFilter) {
+    // Ne pas reconstruire la liste pendant la saisie d'un SoC (le champ perdrait le focus à chaque mise à jour GPS).
+    const ae = document.activeElement;
+    if (ae && ae.classList && ae.classList.contains('arr-input') && document.getElementById('stationsContainer').contains(ae)) return;
     // Seules les étapes restent visibles sur la carte, comme en Guidage
     refreshStageOrder();
     syncStationMarkers(stageStations());
