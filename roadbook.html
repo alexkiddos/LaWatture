@@ -554,6 +554,22 @@
               <label>Conso (kWh/100 km)<input type="number" inputmode="decimal" step="0.5" min="0" id="consoDefInput" class="input-field" value="18" oninput="onBattChange()"></label>
               <label title="Puissance moyenne de recharge entre 10 et 80 %">Recharge moy. (kW)<input type="number" inputmode="decimal" step="5" min="0" id="pChargeInput" class="input-field" oninput="onBattChange()"></label>
             </div>
+            <div class="settings-section-label">Dongle OBD</div>
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+          <button type="button" class="btn-tool-wide" id="obdBtn" onclick="obdToggle()">Connecter le dongle OBD</button>
+        </div>
+        <div class="settings-hint" id="obdStatus" style="margin:0 0 6px;"></div>
+        <div id="obdCalRow" style="display:flex; align-items:center; gap:6px; margin:0 0 6px; font-size:12px;" hidden>
+          <span style="color:var(--muted); font-weight:600;">TdB</span>
+          <input type="number" inputmode="decimal" min="0" max="100" step="1" id="obdCalInput" class="input-field" style="width:58px;" placeholder="%">
+          <button type="button" class="btn-tool-wide" style="height:34px;" onclick="obdCalibrate()">Caler sur le TdB</button>
+          <button type="button" class="soc-undo" onclick="obdResetCal()">Réinit.</button>
+        </div>
+        <div class="settings-hint" id="obdCalInfo" style="margin:0 0 8px;"></div>
+        <div class="settings-hint" id="obdCapInfo" style="margin:0 0 8px; line-height:1.5;"></div>
+        <div class="settings-actions single" style="margin-top:0;">
+          <button type="button" class="btn-tool-wide" id="obdCapUse" onclick="obdUseCapacity()" hidden>Utiliser cette valeur</button>
+        </div>
           </div>
         </div>
         <div class="settings-group" id="grpStrategie">
@@ -3699,6 +3715,371 @@ if ('serviceWorker' in navigator) {
     });
   });
 }
+</script>
+
+<!-- ===================== MODULE OBD (dongle ELM327 BLE) ===================== -->
+<script>
+/* ==================================================================
+ * Module OBD pour Roadbook VE : dongle ELM327 en Bluetooth LE (Veepeak…)
+ * Fiat 500e 2020+ : BMS en 18DA44F1, réponse en 18DAF144
+ * Repris de l'app « 500e SoC » (index.html). Il alimente les relevés de SoC
+ * de Roadbook via recordSoc(), sans toucher au moteur de prévision.
+ * À charger APRÈS le script principal de roadbook.html.
+ * ================================================================== */
+(function () {
+  const OBD_INIT = [
+    'ATZ', 'ATE0', 'ATL0', 'ATS0', 'ATH0', 'ATAL',
+    'ATSP7', 'ATCAF1', 'ATCP18', 'ATSHDA44F1',
+    'ATFCSH18DA44F1', 'ATFCSD300000', 'ATFCSM1',
+    'ATCRA18DAF144', 'ATST64',
+  ];
+  const OBD_BLE_SERVICES = [0xfff0, 0xffe0, 0x18f0, 'e7810a71-73ae-499d-8c15-faa9aef0c3f2'];
+
+  const OBD_POLL_S = 30;       // lecture toutes les 30 s
+  const OBD_MIN_KM = 5;        // écart mini entre deux relevés auto (sinon la conso ne se mesure jamais :
+                               // CONSO_WINDOW = 4 relevés doivent couvrir au moins CONSO_MIN_KM = 15 km)
+  const OBD_CHARGE_JUMP = 3;   // hausse de SoC (points) considérée comme une recharge (en dessous : régénération)
+
+  const obdLog = (m, err) => log('OBD', m, !!err);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  /* ---------------- Couche ELM327 sur BLE ---------------- */
+  class Elm {
+    constructor() { this.buf = ''; this.waiter = null; this.queue = Promise.resolve(); }
+
+    async connect() {
+      this.device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: OBD_BLE_SERVICES });
+      this.device.addEventListener('gattserverdisconnected', () => this.onDisconnect && this.onDisconnect());
+      obdLog(`Appareil : ${this.device.name || '(sans nom)'}`);
+      const server = await this.device.gatt.connect();
+
+      const services = [];
+      for (const s of OBD_BLE_SERVICES) { try { services.push(await server.getPrimaryService(s)); } catch (_) {} }
+      if (!services.length) throw new Error('Aucun service série BLE trouvé. Est-ce bien le dongle OBD ?');
+
+      const short = (u) => u.replace(/^0000(\w{4})-0000-1000-8000-00805f9b34fb$/i, '$1').toUpperCase();
+      const onData = (e) => {
+        this.buf += new TextDecoder().decode(e.target.value);
+        if (this.buf.includes('>') && this.waiter) {
+          const out = this.buf.slice(0, this.buf.indexOf('>'));
+          this.buf = this.buf.slice(this.buf.indexOf('>') + 1);
+          const w = this.waiter; this.waiter = null; w.resolve(out);
+        }
+      };
+
+      await sleep(500); // Android : laisser la pile GATT se stabiliser
+      for (const svc of services) {
+        const chars = await svc.getCharacteristics();
+        const rxCands = chars.filter((c) => c.properties.notify || c.properties.indicate)
+          .sort((a, b) => /fff1|ffe1/i.test(b.uuid) - /fff1|ffe1/i.test(a.uuid));
+        for (const c of rxCands) {
+          for (let attempt = 1; attempt <= 2 && !this.rx; attempt++) {
+            try {
+              c.addEventListener('characteristicvaluechanged', onData);
+              await c.startNotifications();
+              this.rx = c;
+              obdLog(`RX = ${short(c.uuid)}`);
+            } catch (e) {
+              c.removeEventListener('characteristicvaluechanged', onData);
+              obdLog(`Notifications refusées sur ${short(c.uuid)} (essai ${attempt}) : ${e.message}`, true);
+              await sleep(400);
+            }
+          }
+          if (this.rx) break;
+        }
+        if (!this.rx) continue;
+        this.txCands = chars.filter((c) => c.properties.write || c.properties.writeWithoutResponse)
+          .sort((a, b) => /fff2|ffe1/i.test(b.uuid) - /fff2|ffe1/i.test(a.uuid));
+        if (this.txCands.length) break;
+        this.rx = null;
+      }
+      if (!this.rx || !this.txCands || !this.txCands.length) throw new Error('Caractéristiques RX/TX introuvables (voir logs).');
+      this.tx = this.txCands[0];
+      this.writeMode = null;
+    }
+
+    async writeChunk(chunk) {
+      if (this.writeMode) return this.writeMode(chunk);
+      const errors = [];
+      for (const c of this.txCands) {
+        const modes = [];
+        if (c.properties.writeWithoutResponse) modes.push(['sans réponse', (d) => c.writeValueWithoutResponse(d)]);
+        if (c.properties.write) modes.push(['avec réponse', (d) => c.writeValueWithResponse(d)]);
+        modes.push(['legacy', (d) => c.writeValue(d)]);
+        for (const [name, fn] of modes) {
+          try {
+            await fn(chunk);
+            this.tx = c; this.writeMode = fn;
+            obdLog(`TX = ${c.uuid.slice(4, 8).toUpperCase()} (${name})`);
+            return;
+          } catch (e) { errors.push(`${c.uuid.slice(4, 8)} ${name}: ${e.message}`); }
+        }
+      }
+      throw new Error('Écriture impossible — ' + errors.join(' | '));
+    }
+
+    async write(str) {
+      const bytes = new TextEncoder().encode(str);
+      for (let i = 0; i < bytes.length; i += 20) await this.writeChunk(bytes.slice(i, i + 20));
+    }
+
+    send(cmd, timeout = 4000) {
+      const run = async () => {
+        this.buf = '';
+        const p = new Promise((resolve, reject) => {
+          this.waiter = { resolve };
+          setTimeout(() => { if (this.waiter) { this.waiter = null; reject(new Error(`Timeout sur ${cmd}`)); } }, timeout);
+        });
+        await this.write(cmd + '\r');
+        const raw = await p;
+        return raw.replace(/\r/g, '\n').split('\n').map((l) => l.trim()).filter(Boolean).join('\n');
+      };
+      const r = this.queue.then(run, run);
+      this.queue = r.catch(() => {});
+      return r;
+    }
+
+    disconnect() { try { this.device && this.device.gatt.disconnect(); } catch (_) {} }
+  }
+
+  function parseUds(resp, did) {
+    const lines = resp.toUpperCase().split('\n').map((l) => l.replace(/\s+/g, ''))
+      .filter((l) => l && !/^(SEARCHING|OK|BUSINIT|STOPPED)/.test(l));
+    if (lines.some((l) => /NODATA|ERROR|UNABLE|\?/.test(l))) return null;
+    let hex = '';
+    for (const l of lines) {
+      if (/^[0-9A-F]{3}$/.test(l)) continue;
+      hex += l.replace(/^[0-9A-F]:/, '');
+    }
+    const i = hex.indexOf('62' + did);
+    if (i < 0) { if (hex.startsWith('7F')) obdLog(`Réponse négative UDS : ${hex}`, true); return null; }
+    const bytes = [];
+    for (let k = i; k + 1 < hex.length; k += 2) bytes.push(parseInt(hex.substr(k, 2), 16));
+    return bytes;
+  }
+
+  /* ---------------- Correction SoC BMS -> tableau de bord ----------------
+   * Le BMS donne un SoC « brut » ; le TdB affiche un SoC « utile » (marges haute et basse
+   * masquées). On apprend la correspondance à partir de couples (brut, TdB) saisis par
+   * l'utilisateur : 1 couple = décalage simple ; 2+ couples assez écartés = droite
+   * TdB = a × brut + b (moindres carrés). Couples persistés en localStorage. */
+  const OBD_CAL_KEY = 'roadbook_obd_cal';
+  const OBD_CAL_MAX = 8;          // couples conservés
+  const OBD_CAL_MIN_SPREAD = 10;  // écart mini de SoC brut (points) pour calculer une pente
+  let obdCal = [];
+  let lastRaw = null;
+  try { const c = JSON.parse(localStorage.getItem(OBD_CAL_KEY) || '[]'); if (Array.isArray(c)) obdCal = c.filter(x => isFinite(x.raw) && isFinite(x.tdb)); } catch (_) {}
+
+  function calModel() {
+    const n = obdCal.length;
+    if (!n) return { a: 1, b: 0 };
+    const raws = obdCal.map(x => x.raw);
+    const spread = Math.max(...raws) - Math.min(...raws);
+    if (n < 2 || spread < OBD_CAL_MIN_SPREAD) {
+      const off = obdCal.reduce((s, x) => s + (x.tdb - x.raw), 0) / n;
+      return { a: 1, b: off };
+    }
+    const mx = raws.reduce((s, v) => s + v, 0) / n;
+    const my = obdCal.reduce((s, x) => s + x.tdb, 0) / n;
+    let num = 0, den = 0;
+    obdCal.forEach(x => { num += (x.raw - mx) * (x.tdb - my); den += (x.raw - mx) ** 2; });
+    const a = den > 0 ? num / den : 1;
+    return { a, b: my - a * mx };
+  }
+  function obdCorrect(raw) {
+    const m = calModel();
+    return Math.max(0, Math.min(100, m.a * raw + m.b));
+  }
+  function updateCalInfo() {
+    const el = document.getElementById('obdCalInfo');
+    if (!el) return;
+    if (!obdCal.length) { el.textContent = 'Pas de calage : SoC brut du BMS utilisé tel quel.'; return; }
+    const m = calModel();
+    el.textContent = m.a === 1
+      ? `Calage : ${obdCal.length} point(s), décalage ${m.b >= 0 ? '+' : ''}${m.b.toFixed(1)} pt`
+      : `Calage : ${obdCal.length} points · TdB = ${m.a.toFixed(3)} × brut ${m.b >= 0 ? '+' : '−'} ${Math.abs(m.b).toFixed(1)}`;
+  }
+  function saveCal() {
+    try { localStorage.setItem(OBD_CAL_KEY, JSON.stringify(obdCal)); } catch (_) {}
+    updateCalInfo();
+    updateCapInfo();
+  }
+  window.obdCalibrate = function () {
+    const input = document.getElementById('obdCalInput');
+    const tdb = parseFloat(input && input.value);
+    if (lastRaw === null) { setObdUi('Aucune lecture OBD récente pour caler.', connected); return; }
+    if (!isFinite(tdb) || tdb < 0 || tdb > 100) { setObdUi('Saisissez le SoC affiché au tableau de bord (0 à 100).', connected); return; }
+    // Un nouveau couple remplace un ancien de SoC brut voisin (± 3 points)
+    obdCal = obdCal.filter(x => Math.abs(x.raw - lastRaw) > 3);
+    obdCal.push({ raw: Math.round(lastRaw * 10) / 10, tdb });
+    while (obdCal.length > OBD_CAL_MAX) obdCal.shift();
+    saveCal();
+    obdLog(`Calage : brut ${lastRaw.toFixed(1)} % = TdB ${tdb} %`);
+    if (input) input.value = '';
+    pushSocFromObd(lastRaw);
+  };
+  window.obdResetCal = function () {
+    obdCal = [];
+    saveCal();
+    obdLog('Calage réinitialisé.');
+    if (lastRaw !== null) pushSocFromObd(lastRaw);
+  };
+  /* ---------------- Capacité batterie (DID A029) ----------------
+   * A029 : octets 6-7 = Ah nominaux / 10, octets 8-9 = Ah résiduels / 10 (relevés communautaires).
+   * Brut (kWh) = Ah résiduels × tension nominale du pack.
+   * Net (kWh) ≈ brut ÷ a, a = pente du calage TdB = a × brut + b
+   * (la plage 0-100 % du TdB ne couvre que 100/a points de SoC brut). */
+  const OBD_CAP_KEY = 'roadbook_obd_cap';
+  const PACK_NOMINAL_V = 352;      // 96 cellules × ~3,67 V (500e 2020+)
+  const CAP_MIN_SPREAD = 20;       // écart mini de SoC brut entre calages pour estimer la pente
+  let capData = null, capNet = null;
+  try { const c = JSON.parse(localStorage.getItem(OBD_CAP_KEY) || 'null'); if (c && c.tot > 0) capData = c; } catch (_) {}
+
+  function updateCapInfo() {
+    const el = document.getElementById('obdCapInfo'), btn = document.getElementById('obdCapUse');
+    if (!el) return;
+    capNet = null;
+    if (!capData) { el.textContent = ''; if (btn) btn.hidden = true; return; }
+    const gross = capData.res * PACK_NOMINAL_V / 1000;
+    const date = new Date(capData.ts).toLocaleDateString('fr-FR');
+    let html = `SoH <b>${(capData.res / capData.tot * 100).toFixed(1)} %</b> · ${capData.res.toFixed(1)} / ${capData.tot.toFixed(1)} Ah`
+             + `<br>Capacité brute ≈ <b>${gross.toFixed(1)} kWh</b> (lue le ${date})`;
+    const raws = obdCal.map(x => x.raw);
+    const spread = raws.length ? Math.max(...raws) - Math.min(...raws) : 0;
+    if (obdCal.length >= 2 && spread >= CAP_MIN_SPREAD) {
+      const a = calModel().a;
+      if (a < 0.9 || a > 1.6) {
+        html += `<br>Capacité nette : pente de calage incohérente (a = ${a.toFixed(3)}), refaites le calage.`;
+      } else {
+        capNet = Math.round(gross / a * 10) / 10;
+        html += `<br>Capacité nette estimée ≈ <b>${capNet.toFixed(1)} kWh</b>`;
+      }
+    } else {
+      html += `<br>Capacité nette : il faut 2 calages TdB écartés d'au moins ${CAP_MIN_SPREAD} points de SoC.`;
+    }
+    el.innerHTML = html;
+    if (btn) btn.hidden = capNet === null;
+  }
+
+  async function readCapacity() {
+    try {
+      const resp = await elm.send('22A029', 5000);
+      const h = parseUds(resp, 'A029');
+      if (!h || h.length <= 9) { obdLog('Capacité (A029) : pas de réponse exploitable.', true); return; }
+      obdLog('A029 brut : ' + h.map(x => x.toString(16).padStart(2, '0')).join(' ').toUpperCase());
+      const tot = ((h[6] << 8) | h[7]) / 10, res = ((h[8] << 8) | h[9]) / 10;
+      if (!(tot > 0) || !(res > 0) || res > tot * 1.1) { obdLog(`Capacité (A029) : valeurs incohérentes (${res} / ${tot} Ah).`, true); return; }
+      capData = { tot, res, ts: Date.now() };
+      try { localStorage.setItem(OBD_CAP_KEY, JSON.stringify(capData)); } catch (_) {}
+      obdLog(`Capacité : ${res} / ${tot} Ah, brut ≈ ${(res * PACK_NOMINAL_V / 1000).toFixed(1)} kWh`);
+      updateCapInfo();
+    } catch (e) { obdLog('Capacité (A029) : ' + e.message, true); }
+  }
+
+  window.obdUseCapacity = function () {
+    if (capNet === null) return;
+    document.getElementById('battKwhInput').value = capNet;
+    onBattChange();
+    obdLog(`Capacité utile réglée à ${capNet} kWh (estimation OBD).`);
+    setObdUi(`Capacité utile réglée à ${capNet} kWh`, connected);
+  };
+
+  updateCalInfo();
+  updateCapInfo();
+
+  /* ---------------- Pilotage ---------------- */
+  const elm = new Elm();
+  let connected = false, timer = null, reading = false;
+
+  function setObdUi(text, isOn) {
+    const b = document.getElementById('obdBtn'), s = document.getElementById('obdStatus');
+    if (b) {
+      b.textContent = isOn ? 'Déconnecter OBD' : 'Connecter le dongle OBD';
+      b.classList.toggle('tool-active', !!isOn);
+    }
+    if (s) s.textContent = text || '';
+  }
+
+  async function initElm() {
+    for (const c of OBD_INIT) {
+      try {
+        await elm.send(c, c === 'ATZ' ? 6000 : 3000);
+        if (c === 'ATZ') await sleep(800);
+      } catch (e) { obdLog(`(ignoré) ${e.message}`); }
+    }
+  }
+
+  async function readSoc() {
+    try {
+      const s = parseUds(await elm.send('22A010', 5000), 'A010');
+      return (s && s.length > 5) ? (s[5] / 255) * 100 : null;
+    } catch (e) { obdLog(e.message, true); return null; }
+  }
+
+  // Décide si la lecture devient un relevé Roadbook, ou sert seulement à l'affichage.
+  function pushSocFromObd(raw) {
+    const v = Math.round(obdCorrect(raw) * 10) / 10;
+    const calRow = document.getElementById('obdCalRow');
+    if (calRow) calRow.hidden = false;
+    const input = document.getElementById('socInput');
+    if (!BATT_KWH) { setObdUi(`${v.toFixed(1)} % lu · renseignez la capacité batterie`, true); return; }
+
+    const last = socReadings[socReadings.length - 1];
+    const isCharge = last && v >= last.soc + OBD_CHARGE_JUMP;
+    const moved = !last || positionKm < last.km || positionKm - last.km >= OBD_MIN_KM;
+    const record = !last || isCharge || (moved && v <= last.soc);
+
+    if (record) {
+      const err = recordSoc(v);
+      if (err) obdLog(err, true);
+    }
+    if (input && document.activeElement !== input) input.value = Math.round(v);
+    updateSocBar();
+    const t = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    setObdUi(`${v.toFixed(1)} % (brut ${raw.toFixed(1)}) lu à ${t}${record ? ' · relevé enregistré' : ''}`, true);
+  }
+
+  async function poll() {
+    if (!connected || reading) return;
+    reading = true;
+    try {
+      const soc = await readSoc();
+      if (soc === null) setObdUi('Pas de réponse du BMS (contact mis ? dongle enfoncé ?)', true);
+      else { lastRaw = soc; pushSocFromObd(soc); }
+    } finally { reading = false; }
+  }
+
+  elm.onDisconnect = () => {
+    connected = false;
+    clearInterval(timer); timer = null;
+    elm.rx = elm.tx = elm.txCands = elm.writeMode = null;
+    setObdUi('Déconnecté', false);
+    obdLog('Déconnecté');
+  };
+
+  window.obdToggle = async function () {
+    if (connected) { elm.disconnect(); return; }
+    if (!navigator.bluetooth) {
+      setObdUi("Web Bluetooth indisponible : utilisez Chrome sur Android (ou Bluefy sur iPhone).", false);
+      return;
+    }
+    try {
+      setObdUi('Connexion…', false);
+      await elm.connect();
+      connected = true;
+      setObdUi('Initialisation…', true);
+      await initElm();
+      await readCapacity();
+      await poll();
+      timer = setInterval(poll, OBD_POLL_S * 1000);
+    } catch (e) {
+      obdLog('Erreur : ' + e.message, true);
+      setObdUi(e.name === 'NotFoundError' ? '' : 'Connexion impossible : ' + e.message, false);
+      elm.disconnect();
+    }
+  };
+  window.obdReadNow = poll;
+})();
 </script>
 </body>
 </html>
