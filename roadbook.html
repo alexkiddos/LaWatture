@@ -837,8 +837,9 @@ let CONSO_DEFAUT = 18;         // kWh/100 km, repli tant qu'aucune mesure fiable
 let socReadings = [];          // [{soc, km}] croissants en km
 let socUndo = null;            // état {readings, consoCalib} juste avant le dernier relevé, pour l'annuler
 let consoCalib = null;         // dernière conso mesurée (conservée après une recharge)
-const CONSO_MIN_KM = 15;       // distance mini entre relevés pour calculer une conso
-const CONSO_WINDOW = 4;        // nb de relevés récents pris en compte
+const CONSO_MIN_KM = 15;       // distance mini couverte par les relevés pour calculer une conso
+const CONSO_WINDOW_KM = 50;    // fenêtre glissante : relevés des N derniers km (régression linéaire)
+                               // et distance à partir de laquelle la mesure seule fait foi
 const SOC_WARN = 20, SOC_ALERT = 10;
 let P_CHARGE_KW = 0;           // puissance moyenne de recharge sur 10→80 % (persistée)
 let SOC_CIBLE = 80;            // SoC de départ de borne en mode Fixe / plafond en mode Auto
@@ -1823,12 +1824,31 @@ function updatePosition(lat, lng, heading, speedMps, accuracy) {
 /* ===================== PRÉVISION DE SoC ===================== */
 
 // Conso mesurée (kWh/100 km) sur les derniers relevés ; null si pas assez de distance ou SoC non décroissant.
-function measuredConso() {
+// Pente SoC/km par moindres carrés sur les relevés des CONSO_WINDOW_KM derniers km (au moins
+// 2 relevés), puis mélange avec la conso connue avant (dernière mesure, sinon défaut) selon la
+// distance mesurée : poids de la mesure = distance / CONSO_WINDOW_KM (plafonné à 1).
+// Retourne { conso, raw, km } ou null.
+function consoFit() {
     if (!BATT_KWH || socReadings.length < 2) return null;
-    const w = socReadings.slice(-CONSO_WINDOW), a = w[0], b = w[w.length - 1];
-    const dKm = b.km - a.km, dSoc = a.soc - b.soc;
-    if (dKm < CONSO_MIN_KM || dSoc <= 0) return null;
-    return (dSoc / 100) * BATT_KWH / dKm * 100;
+    const last = socReadings[socReadings.length - 1];
+    const w = socReadings.filter(r => r.km >= last.km - CONSO_WINDOW_KM);
+    if (w.length < 2) w.unshift(socReadings[socReadings.length - 2]);
+    const span = last.km - w[0].km;
+    if (span < CONSO_MIN_KM) return null;
+    const n = w.length;
+    const mx = w.reduce((s, r) => s + r.km, 0) / n, my = w.reduce((s, r) => s + r.soc, 0) / n;
+    let num = 0, den = 0;
+    w.forEach(r => { num += (r.km - mx) * (r.soc - my); den += (r.km - mx) ** 2; });
+    if (!(den > 0)) return null;
+    const raw = -(num / den) * BATT_KWH;      // pente en %/km → kWh/100 km
+    if (!(raw > 0)) return null;
+    const prior = consoCalib !== null ? consoCalib : CONSO_DEFAUT;
+    const wt = Math.min(1, span / CONSO_WINDOW_KM);
+    return { conso: wt * raw + (1 - wt) * prior, raw, km: span };
+}
+function measuredConso() {
+    const f = consoFit();
+    return f ? f.conso : null;
 }
 function currentConso() {
     const m = measuredConso();
@@ -1912,7 +1932,9 @@ function updateBattStatus(msg) {
     const el = document.getElementById('battStatus');
     if (!el) return;
     if (msg) { el.textContent = msg; return; }
-    const src = measuredConso() !== null ? 'mesurée' : (consoCalib !== null ? 'dernière mesure' : 'par défaut');
+    const f = consoFit();
+    const src = f ? `mesurée sur ${Math.round(f.km)} km` + (f.km < CONSO_WINDOW_KM ? `, brute ${f.raw.toFixed(1)}` : '')
+                  : (consoCalib !== null ? 'dernière mesure' : 'par défaut');
     el.textContent = `${socReadings.length} relevé(s) · conso ${currentConso().toFixed(1)} kWh/100 km (${src})`;
 }
 function onBattChange() {
@@ -3735,8 +3757,8 @@ if ('serviceWorker' in navigator) {
   const OBD_BLE_SERVICES = [0xfff0, 0xffe0, 0x18f0, 'e7810a71-73ae-499d-8c15-faa9aef0c3f2'];
 
   const OBD_POLL_S = 30;       // lecture toutes les 30 s
-  const OBD_MIN_KM = 5;        // écart mini entre deux relevés auto (sinon la conso ne se mesure jamais :
-                               // CONSO_WINDOW = 4 relevés doivent couvrir au moins CONSO_MIN_KM = 15 km)
+  const OBD_MIN_KM = 2;        // écart mini entre deux relevés auto : plus de points pour la régression
+                               // sur la fenêtre CONSO_WINDOW_KM, sans saturer la liste des relevés
   const OBD_CHARGE_JUMP = 3;   // hausse de SoC (points) considérée comme une recharge (en dessous : régénération)
 
   const obdLog = (m, err) => log('OBD', m, !!err);
