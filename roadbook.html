@@ -570,6 +570,13 @@
         <div class="settings-actions single" style="margin-top:0;">
           <button type="button" class="btn-tool-wide" id="obdCapUse" onclick="obdUseCapacity()" hidden>Utiliser cette valeur</button>
         </div>
+        <div class="settings-hint" id="obdPowerInfo" style="margin:0 0 6px; line-height:1.5;" hidden></div>
+        <label class="settings-hint" style="display:flex; align-items:center; gap:6px; margin:0 0 4px;" title="Conso = énergie sortie de la batterie (tension × courant) ÷ km GPS. Activez-la une fois le diagnostic validé.">
+          <input type="checkbox" id="obdUseEnergy" onchange="obdSetOptions()"> Conso mesurée par l'OBD (tension × courant)</label>
+        <label class="settings-hint" style="display:flex; align-items:center; gap:6px; margin:0 0 4px;">
+          <input type="checkbox" id="obdFlipSign" onchange="obdSetOptions()"> Inverser le signe du courant</label>
+        <label class="settings-hint" style="display:flex; align-items:center; gap:6px; margin:0 0 8px;" title="Journalise les trames brutes tension / courant toutes les 10 s">
+          <input type="checkbox" id="obdDiag" onchange="obdSetOptions()"> Diagnostic (trames dans le journal)</label>
           </div>
         </div>
         <div class="settings-group" id="grpStrategie">
@@ -834,7 +841,39 @@ const EMPTY_STATE_HTML = document.getElementById('stationsContainer').innerHTML;
    un SoC mémorisé serait périmé à la réouverture). Conso déduite des relevés, sans horodatage. --- */
 let BATT_KWH = 0;              // capacité utile (persistée)
 let CONSO_DEFAUT = 18;         // kWh/100 km, repli tant qu'aucune mesure fiable (persistée)
-let socReadings = [];          // [{soc, km}] croissants en km
+let socReadings = [];          // [{soc, km, odo}] : km = position sur la trace, odo = compteur GPS au moment du relevé
+
+/* --- Compteur kilométrique GPS : distance réellement roulée, sur la trace ou non (détours, déviations).
+   Sert à MESURER la conso ; la PRÉVISION reste en km de trace (ce qu'il reste à rouler). --- */
+let odoKm = 0;                 // km cumulés depuis l'ouverture de la page
+let odoLast = null;            // dernier point retenu {lat, lng, t}
+let odoFixT = 0;               // horodatage (ms) du dernier fix GPS assez précis (sert à l'intégration d'énergie OBD)
+const ODO_MAX_ACC_M = 25;      // fix ignoré au-delà de cette imprécision
+const ODO_MIN_STEP_M = 10;     // déplacement mini avant d'ajouter de la distance (anti-gigue)
+const ODO_MAX_GAP_S = 120;     // au-delà : coupure GPS, on relie en ligne droite (mieux que rien pour les relevés SoC)
+const ODO_MAX_KMH = 250;       // saut plus rapide que ça = point aberrant
+let obdEnergyFit = null;       // fourni par le module OBD : () => { raw, km } (conso tension × courant) ou null
+const CONSO_OBD_MIN_KM = 3;    // distance mini intégrée pour utiliser la conso OBD
+const CONSO_OBD_FULL_KM = 20;  // distance à partir de laquelle la conso OBD seule fait foi
+
+function odoUpdate(lat, lng, accuracy, speedMps) {
+    if (accuracy != null && accuracy > ODO_MAX_ACC_M) return;
+    const t = Date.now();
+    odoFixT = t;
+    if (!odoLast) { odoLast = { lat, lng, t }; return; }
+    const dt = (t - odoLast.t) / 1000;
+    const d = distanceHaversine(odoLast.lat, odoLast.lng, lat, lng) * 1000;
+    if (dt > ODO_MAX_GAP_S) {
+        if (d / dt * 3.6 <= ODO_MAX_KMH) odoKm += d / 1000;
+        odoLast = { lat, lng, t };
+        return;
+    }
+    if (d < ODO_MIN_STEP_M) return;                                          // on garde l'ancrage jusqu'à un vrai déplacement
+    if (speedMps != null && speedMps < 0.3 && d < 3 * (accuracy || 10)) return; // gigue à l'arrêt
+    if (dt > 0 && d / dt * 3.6 > ODO_MAX_KMH) return;                       // point aberrant
+    odoKm += d / 1000;
+    odoLast = { lat, lng, t };
+}
 let socUndo = null;            // état {readings, consoCalib} juste avant le dernier relevé, pour l'annuler
 let consoCalib = null;         // dernière conso mesurée (conservée après une recharge)
 const CONSO_MIN_KM = 15;       // distance mini couverte par les relevés pour calculer une conso
@@ -1767,6 +1806,7 @@ function navFrame(now) {
 
 function updatePosition(lat, lng, heading, speedMps, accuracy) {
     const tracking = isNavTracking(), nowMs = performance.now();
+    if (tracking) odoUpdate(lat, lng, accuracy, speedMps);
 
     if (tracking && !isSimulating) {
         if (accuracy != null && accuracy > MAX_ACCURACY_M) { setNavState('poor'); return; } // fix trop imprécis
@@ -1823,28 +1863,33 @@ function updatePosition(lat, lng, heading, speedMps, accuracy) {
 
 /* ===================== PRÉVISION DE SoC ===================== */
 
-// Conso mesurée (kWh/100 km) sur les derniers relevés ; null si pas assez de distance ou SoC non décroissant.
-// Pente SoC/km par moindres carrés sur les relevés des CONSO_WINDOW_KM derniers km (au moins
-// 2 relevés), puis mélange avec la conso connue avant (dernière mesure, sinon défaut) selon la
-// distance mesurée : poids de la mesure = distance / CONSO_WINDOW_KM (plafonné à 1).
-// Retourne { conso, raw, km } ou null.
+// Conso mesurée (kWh/100 km), mélangée avec la conso connue avant (dernière mesure, sinon défaut)
+// selon la distance mesurée. Retourne { conso, raw, km, src } ou null.
+//  1. OBD tension × courant (si activée dans les réglages OBD) : énergie intégrée / km GPS.
+//  2. Sinon relevés de SoC : pente SoC / km GPS par moindres carrés sur les CONSO_WINDOW_KM derniers km.
 function consoFit() {
-    if (!BATT_KWH || socReadings.length < 2) return null;
+    if (!BATT_KWH) return null;
+    const prior = consoCalib !== null ? consoCalib : CONSO_DEFAUT;
+    const e = obdEnergyFit ? obdEnergyFit() : null;
+    if (e && e.km >= CONSO_OBD_MIN_KM && e.raw > 0) {
+        const wt = Math.min(1, e.km / CONSO_OBD_FULL_KM);
+        return { conso: wt * e.raw + (1 - wt) * prior, raw: e.raw, km: e.km, full: wt >= 1, src: 'OBD' };
+    }
+    if (socReadings.length < 2) return null;
     const last = socReadings[socReadings.length - 1];
-    const w = socReadings.filter(r => r.km >= last.km - CONSO_WINDOW_KM);
+    const w = socReadings.filter(r => r.odo >= last.odo - CONSO_WINDOW_KM);
     if (w.length < 2) w.unshift(socReadings[socReadings.length - 2]);
-    const span = last.km - w[0].km;
+    const span = last.odo - w[0].odo;
     if (span < CONSO_MIN_KM) return null;
     const n = w.length;
-    const mx = w.reduce((s, r) => s + r.km, 0) / n, my = w.reduce((s, r) => s + r.soc, 0) / n;
+    const mx = w.reduce((s, r) => s + r.odo, 0) / n, my = w.reduce((s, r) => s + r.soc, 0) / n;
     let num = 0, den = 0;
-    w.forEach(r => { num += (r.km - mx) * (r.soc - my); den += (r.km - mx) ** 2; });
+    w.forEach(r => { num += (r.odo - mx) * (r.soc - my); den += (r.odo - mx) ** 2; });
     if (!(den > 0)) return null;
     const raw = -(num / den) * BATT_KWH;      // pente en %/km → kWh/100 km
     if (!(raw > 0)) return null;
-    const prior = consoCalib !== null ? consoCalib : CONSO_DEFAUT;
     const wt = Math.min(1, span / CONSO_WINDOW_KM);
-    return { conso: wt * raw + (1 - wt) * prior, raw, km: span };
+    return { conso: wt * raw + (1 - wt) * prior, raw, km: span, full: wt >= 1, src: 'SoC' };
 }
 function measuredConso() {
     const f = consoFit();
@@ -1858,7 +1903,11 @@ function currentConso() {
 function predictSoc(km, detour) {
     const a = socReadings[socReadings.length - 1];
     if (!a || !BATT_KWH || km < a.km) return null;
-    const d = (km - a.km) + (detour || 0);
+    // Point devant la position : distance réellement roulée depuis le relevé (compteur GPS, détours
+    // compris ; km de trace si plus grand, ex. km saisi à la main) + reste de trace jusqu'au point.
+    const d = (km >= positionKm && positionKm >= a.km)
+        ? Math.max(odoKm - a.odo, positionKm - a.km) + (km - positionKm) + (detour || 0)
+        : (km - a.km) + (detour || 0);
     return a.soc - (d * currentConso() / BATT_KWH);
 }
 // Durée de charge (ms) de socFrom à socTo : P jusqu'à 80 %, P × TAIL_FACTOR au-delà ; P plafonnée par la borne.
@@ -1933,7 +1982,7 @@ function updateBattStatus(msg) {
     if (!el) return;
     if (msg) { el.textContent = msg; return; }
     const f = consoFit();
-    const src = f ? `mesurée sur ${Math.round(f.km)} km` + (f.km < CONSO_WINDOW_KM ? `, brute ${f.raw.toFixed(1)}` : '')
+    const src = f ? `mesurée ${f.src} sur ${Math.round(f.km)} km` + (f.full ? '' : `, brute ${f.raw.toFixed(1)}`)
                   : (consoCalib !== null ? 'dernière mesure' : 'par défaut');
     el.textContent = `${socReadings.length} relevé(s) · conso ${currentConso().toFixed(1)} kWh/100 km (${src})`;
 }
@@ -1958,15 +2007,16 @@ function recordSoc(soc) {
     if (isNaN(soc) || soc < 0 || soc > 100) return 'SoC invalide (0 à 100).';
     socUndo = { readings: socReadings.slice(), consoCalib: consoCalib };
     const km = positionKm;
-    // Retour en arrière ou même km : on écarte les relevés postérieurs ou égaux.
-    socReadings = socReadings.filter(r => r.km < km);
+    // Retour en arrière sur la trace, ou même endroit (même km de trace ET compteur GPS quasi inchangé) :
+    // on écarte les relevés postérieurs ou égaux. Même km de trace mais GPS avancé = détour : on garde.
+    socReadings = socReadings.filter(r => r.km < km || (r.km <= km + 0.05 && odoKm - r.odo >= 0.2));
     const last = socReadings[socReadings.length - 1];
     if (last && soc > last.soc) { // SoC en hausse = recharge : on repart d'un nouvel ancrage
         const m = measuredConso();
         if (m !== null) consoCalib = m;
         socReadings = [];
     }
-    socReadings.push({ soc, km });
+    socReadings.push({ soc, km, odo: odoKm });
     log("SOC", `Relevé ${soc} % au km ${km.toFixed(1)} · conso ${currentConso().toFixed(1)} kWh/100 km`);
     updateBattStatus();
     renderList(positionKm);
@@ -3760,6 +3810,11 @@ if ('serviceWorker' in navigator) {
   const OBD_MIN_KM = 2;        // écart mini entre deux relevés auto : plus de points pour la régression
                                // sur la fenêtre CONSO_WINDOW_KM, sans saturer la liste des relevés
   const OBD_CHARGE_JUMP = 3;   // hausse de SoC (points) considérée comme une recharge (en dessous : régénération)
+  const OBD_FAST_S = 2;        // lecture tension + courant toutes les 2 s (le SoC reste à OBD_POLL_S)
+  const OBD_STEP_MAX_S = 10;   // pas d'intégration plus long = trou de mesure : ni énergie ni km comptés
+  const OBD_GPS_STALE_MS = 15000; // GPS sans fix depuis plus longtemps : ni énergie ni km comptés
+  const OBD_BIN_KM = 0.5;      // l'énergie est rangée par tranches de 0,5 km GPS
+  const OBD_OPT_KEY = 'roadbook_obd_opts';
 
   const obdLog = (m, err) => log('OBD', m, !!err);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -4012,6 +4067,130 @@ if ('serviceWorker' in navigator) {
   const elm = new Elm();
   let connected = false, timer = null, reading = false;
 
+  /* ---------------- Énergie batterie : tension × courant (DID A011 / A00A) ----------------
+   * Relevés communautaires (500e 2020+, BMS en DA44F1, non vérifiés par Fiat) :
+   *   A00A : courant = (octets 3-4 − 32768) / 20   [A]
+   *   A011 : tension = octets 6-7 / 10             [V]  (réponse multi-trames)
+   * Signe du courant non documenté → option « Inverser le signe ». Ici : puissance > 0 = décharge.
+   * Intégration par trapèzes, rattachée au compteur GPS odoKm. Un pas ne compte (énergie ET km)
+   * que si la mesure OBD est continue (≤ OBD_STEP_MAX_S) et le GPS actif. Recharge à l'arrêt exclue.
+   * Contrôle : énergie intégrée ÷ variation de SoC (TdB) = capacité implicite, à comparer à la capacité utile. */
+  const opts = { use: false, flip: false, diag: false };
+  try { Object.assign(opts, JSON.parse(localStorage.getItem(OBD_OPT_KEY) || '{}')); } catch (_) {}
+  let pw = null;                 // dernière mesure {v, i, kw, t}
+  let prevStep = null;           // {t, kw, odo} point précédent de l'intégration rattachée aux km
+  let eBins = [];                // [{odo, km, e}] tranches d'énergie (kWh) par ~0,5 km GPS
+  let binKm = 0, binE = 0;       // tranche en cours
+  let eDrive = 0, kmDrive = 0;   // cumuls rattachés aux km depuis la connexion (affichage)
+  let eAll = 0, lastAll = null;  // énergie cumulée sans condition GPS (contrôle de cohérence)
+  let capRef = null, capMsg = '';// {eAll, soc} : point de départ du contrôle de capacité
+  let lastMoveT = 0, lastDiagT = 0, lastErrT = 0, lastSocT = 0;
+
+  const errLog = (m) => { const t = Date.now(); if (t - lastErrT > 30000) { lastErrT = t; obdLog(m, true); } };
+  const hexStr = (h) => h.map(x => x.toString(16).padStart(2, '0')).join(' ').toUpperCase();
+
+  async function readPower() {
+    try {
+      const hI = parseUds(await elm.send('22A00A', 3000), 'A00A');
+      const hV = parseUds(await elm.send('22A011', 3000), 'A011');
+      if (!hI || hI.length < 5 || !hV || hV.length < 8) {
+        errLog(`Tension/courant : réponse incomplète (A00A ${hI ? hI.length : 0} o, A011 ${hV ? hV.length : 0} o).`);
+        return null;
+      }
+      let i = (((hI[3] << 8) | hI[4]) - 32768) / 20;
+      if (opts.flip) i = -i;
+      const v = ((hV[6] << 8) | hV[7]) / 10;
+      const t = Date.now();
+      if (opts.diag && t - lastDiagT >= 10000) {
+        lastDiagT = t;
+        obdLog(`DIAG A00A : ${hexStr(hI)} → ${i.toFixed(2)} A`);
+        obdLog(`DIAG A011 : ${hexStr(hV)} → ${v.toFixed(1)} V · ${(v * i / 1000).toFixed(2)} kW · GPS ${(odoKm).toFixed(2)} km`);
+      }
+      if (!(v > 200 && v < 450)) { errLog(`Tension hors plage (${v.toFixed(1)} V) : position des octets A011 à vérifier (mode diagnostic).`); return null; }
+      if (!(Math.abs(i) < 500)) { errLog(`Courant hors plage (${i.toFixed(1)} A).`); return null; }
+      return { v, i, kw: v * i / 1000, t };
+    } catch (e) { errLog('Tension/courant : ' + e.message); return null; }
+  }
+
+  function resetEnergyStep() { prevStep = null; lastAll = null; capRef = null; pw = null; }
+
+  function integrate(p) {
+    pw = p;
+    if (!p) { resetEnergyStep(); return; }
+    // 1. Énergie totale, GPS non requis : contrôle de cohérence avec le SoC
+    if (lastAll && p.t - lastAll.t <= OBD_STEP_MAX_S * 1000) eAll += (lastAll.kw + p.kw) / 2 * (p.t - lastAll.t) / 3600000;
+    else capRef = null;                                   // trou de mesure : le contrôle repart de zéro
+    lastAll = { t: p.t, kw: p.kw };
+    // 2. Énergie rattachée aux km GPS : sert à la conso
+    const gpsOk = p.t - odoFixT < OBD_GPS_STALE_MS;
+    if (prevStep && gpsOk && p.t - prevStep.t <= OBD_STEP_MAX_S * 1000) {
+      const dKm = Math.max(0, odoKm - prevStep.odo);
+      if (dKm > 0) lastMoveT = p.t;
+      const dE = (prevStep.kw + p.kw) / 2 * (p.t - prevStep.t) / 3600000;
+      const charging = p.kw < -0.5 && p.t - lastMoveT > 4000;    // immobile (2 pas) et énergie entrante = recharge
+      if (!charging) {
+        binE += dE; binKm += dKm; eDrive += dE; kmDrive += dKm;
+        if (binKm >= OBD_BIN_KM) {
+          eBins.push({ odo: odoKm, km: binKm, e: binE });
+          binKm = 0; binE = 0;
+          eBins = eBins.filter(b => b.odo >= odoKm - CONSO_WINDOW_KM - 5);
+          if (opts.use) updateBattStatus();
+        }
+      }
+    }
+    prevStep = gpsOk ? { t: p.t, kw: p.kw, odo: odoKm } : null;
+  }
+
+  // Conso OBD sur les CONSO_WINDOW_KM derniers km GPS (le mélange avec l'a priori est fait dans consoFit)
+  obdEnergyFit = function () {
+    if (!opts.use) return null;
+    let e = binE, km = binKm;
+    for (const b of eBins) if (b.odo >= odoKm - CONSO_WINDOW_KM) { e += b.e; km += b.km; }
+    return km > 0 ? { raw: e / km * 100, km } : null;
+  };
+
+  // Capacité implicite = énergie intégrée ÷ variation de SoC (échelle TdB) × 100
+  function capCheck(soc) {
+    if (!lastAll) return;
+    if (!capRef) { capRef = { eAll, soc }; capMsg = ''; return; }
+    const dSoc = capRef.soc - soc, dE = eAll - capRef.eAll;
+    if (Math.abs(dSoc) < 3) return;
+    const cap = dE / dSoc * 100;
+    capMsg = `Contrôle : ${dE.toFixed(2)} kWh pour ${dSoc.toFixed(1)} pts de SoC → capacité implicite ≈ <b>${cap.toFixed(1)} kWh</b>`
+           + (BATT_KWH ? ` (réglée : ${BATT_KWH})` : '')
+           + (cap < 0 ? '<br><b>Négative : signe du courant probablement inversé.</b>' : '');
+    if (opts.diag) obdLog(`DIAG capacité implicite ${cap.toFixed(1)} kWh (ΔE ${dE.toFixed(2)} kWh, ΔSoC ${dSoc.toFixed(1)} pts)`);
+  }
+
+  function updatePowerInfo() {
+    const el = document.getElementById('obdPowerInfo');
+    if (!el) return;
+    el.hidden = false;
+    const lines = [];
+    if (pw) lines.push(`Batterie : <b>${pw.v.toFixed(1)} V · ${pw.i.toFixed(1)} A · ${pw.kw.toFixed(1)} kW</b> (${pw.kw >= 0 ? 'décharge' : 'charge / récupération'})`);
+    else lines.push('Tension / courant : pas de lecture valide (voir journal).');
+    lines.push(`Intégré : ${eDrive.toFixed(2)} kWh sur ${kmDrive.toFixed(1)} km GPS`
+             + (kmDrive >= 1 ? ` → ${(eDrive / kmDrive * 100).toFixed(1)} kWh/100 km` : ''));
+    if (Date.now() - odoFixT >= OBD_GPS_STALE_MS) lines.push('GPS inactif : énergie non rattachée aux km (lancez le suivi de position).');
+    if (capMsg) lines.push(capMsg);
+    el.innerHTML = lines.join('<br>');
+  }
+
+  window.obdSetOptions = function () {
+    const was = opts.use, wasFlip = opts.flip;
+    opts.use = !!document.getElementById('obdUseEnergy').checked;
+    opts.flip = !!document.getElementById('obdFlipSign').checked;
+    if (opts.flip !== wasFlip) {   // les cumuls déjà intégrés ont le mauvais signe : on repart de zéro
+      eBins = []; binE = binKm = eDrive = kmDrive = eAll = 0; capMsg = ''; resetEnergyStep();
+    }
+    opts.diag = !!document.getElementById('obdDiag').checked;
+    try { localStorage.setItem(OBD_OPT_KEY, JSON.stringify(opts)); } catch (_) {}
+    if (opts.use !== was) { updateBattStatus(); renderList(positionKm); }
+  };
+  [['obdUseEnergy', 'use'], ['obdFlipSign', 'flip'], ['obdDiag', 'diag']].forEach(([id, k]) => {
+    const c = document.getElementById(id); if (c) c.checked = !!opts[k];
+  });
+
   function setObdUi(text, isOn) {
     const b = document.getElementById('obdBtn'), s = document.getElementById('obdStatus');
     if (b) {
@@ -4047,7 +4226,9 @@ if ('serviceWorker' in navigator) {
 
     const last = socReadings[socReadings.length - 1];
     const isCharge = last && v >= last.soc + OBD_CHARGE_JUMP;
-    const moved = !last || positionKm < last.km || positionKm - last.km >= OBD_MIN_KM;
+    capCheck(v);
+    // Distance depuis le dernier relevé : compteur GPS (détours compris), ou km de trace si plus grand
+    const moved = !last || positionKm < last.km || Math.max(odoKm - last.odo, positionKm - last.km) >= OBD_MIN_KM;
     const record = !last || isCharge || (moved && v <= last.soc);
 
     if (record) {
@@ -4063,6 +4244,7 @@ if ('serviceWorker' in navigator) {
   async function poll() {
     if (!connected || reading) return;
     reading = true;
+    lastSocT = Date.now();
     try {
       const soc = await readSoc();
       if (soc === null) setObdUi('Pas de réponse du BMS (contact mis ? dongle enfoncé ?)', true);
@@ -4070,9 +4252,21 @@ if ('serviceWorker' in navigator) {
     } finally { reading = false; }
   }
 
+  // Boucle rapide : tension + courant à chaque tour, SoC toutes les OBD_POLL_S secondes.
+  async function tick() {
+    if (!connected || reading) return;
+    reading = true;
+    let p = null;
+    try { p = await readPower(); } finally { reading = false; }
+    integrate(p);
+    updatePowerInfo();
+    if (Date.now() - lastSocT >= OBD_POLL_S * 1000) await poll();
+  }
+
   elm.onDisconnect = () => {
     connected = false;
     clearInterval(timer); timer = null;
+    resetEnergyStep();
     elm.rx = elm.tx = elm.txCands = elm.writeMode = null;
     setObdUi('Déconnecté', false);
     obdLog('Déconnecté');
@@ -4091,8 +4285,9 @@ if ('serviceWorker' in navigator) {
       setObdUi('Initialisation…', true);
       await initElm();
       await readCapacity();
+      resetEnergyStep();
       await poll();
-      timer = setInterval(poll, OBD_POLL_S * 1000);
+      timer = setInterval(tick, OBD_FAST_S * 1000);
     } catch (e) {
       obdLog('Erreur : ' + e.message, true);
       setObdUi(e.name === 'NotFoundError' ? '' : 'Connexion impossible : ' + e.message, false);
