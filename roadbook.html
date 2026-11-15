@@ -837,7 +837,6 @@ let CONSO_DEFAUT = 18;         // kWh/100 km, repli tant qu'aucune mesure fiable
 let socReadings = [];          // [{soc, km}] croissants en km
 let socUndo = null;            // état {readings, consoCalib} juste avant le dernier relevé, pour l'annuler
 let consoCalib = null;         // dernière conso mesurée (conservée après une recharge)
-const SOC_MARGE = 1.05;        // marge de sécurité sur la conso
 const CONSO_MIN_KM = 15;       // distance mini entre relevés pour calculer une conso
 const CONSO_WINDOW = 4;        // nb de relevés récents pris en compte
 const SOC_WARN = 20, SOC_ALERT = 10;
@@ -1840,7 +1839,7 @@ function predictSoc(km, detour) {
     const a = socReadings[socReadings.length - 1];
     if (!a || !BATT_KWH || km < a.km) return null;
     const d = (km - a.km) + (detour || 0);
-    return a.soc - (d * currentConso() * SOC_MARGE / BATT_KWH);
+    return a.soc - (d * currentConso() / BATT_KWH);
 }
 // Durée de charge (ms) de socFrom à socTo : P jusqu'à 80 %, P × TAIL_FACTOR au-delà ; P plafonnée par la borne.
 function chargeDurationMs(socFrom, socTo, stationKw) {
@@ -1860,7 +1859,7 @@ function computePlan() {
     if (!gpxPoints.length || !BATT_KWH) return null;
     const soc0 = predictSoc(positionKm, 0);
     if (soc0 === null) return null;
-    const c = currentConso() * SOC_MARGE / BATT_KWH;       // % de batterie par km
+    const c = currentConso() / BATT_KWH;       // % de batterie par km
     const endKm = gpxPoints[gpxPoints.length - 1].km;
     const stages = stageStations().filter(s => s.km >= positionKm);
     const nodes = [];
@@ -1895,7 +1894,7 @@ function predictSocPlanned(km, detour, plan) {
     let n = null;
     for (const x of plan.nodes) if (x.km < km) n = x;
     if (!n) return predictSoc(km, detour);
-    return n.socDep - ((km - n.km) + n.s.detour + (detour || 0)) * currentConso() * SOC_MARGE / BATT_KWH;
+    return n.socDep - ((km - n.km) + n.s.detour + (detour || 0)) * currentConso() / BATT_KWH;
 }
 function socPillHtml(km, detour, plan) {
     return socPillFromValue(predictSocPlanned(km, detour, plan));
@@ -2103,7 +2102,7 @@ function exportItineraryInner() {
             version: 2, exportedAt: new Date().toISOString(), traceName: currentTraceName || null,
             vehicle: {
                 batteryUsableKwh: BATT_KWH || null,
-                consumptionKwhPer100km: r1(currentConso()), safetyMargin: SOC_MARGE, stopOverheadMin: STOP_OVERHEAD_MIN, detourKmh: DETOUR_KMH,
+                consumptionKwhPer100km: r1(currentConso()), stopOverheadMin: STOP_OVERHEAD_MIN, detourKmh: DETOUR_KMH,
                 chargePowerAvg10to80Kw: P_CHARGE_KW || null,
                 targetSocPct: SOC_CIBLE, reserveSocPct: SOC_RESERVE, arrivalStopSocPct: SOC_RESERVE, arrivalDestinationSocPct: SOC_ARR_DEST, chargeMode: PLAN_AUTO ? 'auto' : 'fixed'
             },
@@ -2196,7 +2195,7 @@ function stopCostMs(n, socArr, socDep) {
 // Retourne { ids, costMs } (ids dans l'ordre du trajet, éventuellement vide) ou null si aucun plan n'atteint l'arrivée avec la réserve R.
 function optimizeStops(soc0, R, Rend) {
     if (Rend === undefined) Rend = R;
-    const c = currentConso() * SOC_MARGE / BATT_KWH;       // % de batterie par km
+    const c = currentConso() / BATT_KWH;       // % de batterie par km
     const endKm = gpxPoints[gpxPoints.length - 1].km;
     const cand = globalData.filter(s => s.km > positionKm && s.km < endKm && s.dispo !== 0 && s.pwr > 0);
     const N = [{ start: true, km: positionKm, detour: 0 }, ...cand, { end: true, km: endKm, detour: 0 }];
